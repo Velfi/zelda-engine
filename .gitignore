@@ -1,0 +1,47 @@
+# OS and editor metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs, coverage, and temporary output
+*.log
+coverage/
+tmp/
+temp/
+
+# Native build products
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.dSYM/
+*.pdb
+*.ilk
+*.exp
+*.out
+
+# CMake build trees
+**/CMakeCache.txt
+**/CMakeFiles/
+**/cmake_install.cmake
+**/CTestTestfile.cmake
+compile_commands.json
+
+# Downloaded and generated third-party dependencies
+third_party/JoltPhysics/
+third_party/jolt/build/
