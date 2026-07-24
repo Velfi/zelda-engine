@@ -1,6 +1,8 @@
 package render_resources
 
 import "core:mem"
+import "core:image"
+import _ "core:image/png"
 import engine "zelda_engine:engine"
 import vk "vendor:vulkan"
 
@@ -107,4 +109,20 @@ texture_upload_rgba8 :: proc(ctx: ^engine.Vk_Context, pixels: []u8, width, heigh
 	sampler_info := vk.SamplerCreateInfo{sType = .SAMPLER_CREATE_INFO, magFilter = .LINEAR, minFilter = .LINEAR, mipmapMode = .LINEAR, addressModeU = options.address_mode, addressModeV = options.address_mode, addressModeW = options.address_mode, minLod = 0, maxLod = 0}
 	if vk.CreateSampler(ctx.device, &sampler_info, nil, &out.sampler) != .SUCCESS {image_destroy(out, ctx); return false}
 	return true
+}
+
+// texture_load_file decodes a supported image and uploads it as an RGBA texture.
+// File selection and asset lifetime remain consumer policy; this helper owns only
+// the reusable decode-to-GPU transfer step.
+texture_load_file :: proc(
+	ctx: ^engine.Vk_Context,
+	path: string,
+	out: ^Image,
+	options := Sampler_Options{address_mode = .CLAMP_TO_EDGE},
+	allocator := context.temp_allocator,
+) -> bool {
+	decoded, decode_error := image.load(path, {.alpha_add_if_missing}, allocator)
+	if decode_error != nil || decoded == nil do return false
+	defer image.destroy(decoded, allocator)
+	return texture_upload_rgba8(ctx, decoded.pixels.buf[:], decoded.width, decoded.height, out, options)
 }

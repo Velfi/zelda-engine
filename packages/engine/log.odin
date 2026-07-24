@@ -39,7 +39,7 @@ log_configure_from_env :: proc() {
 		return
 	}
 	buf: [32]u8
-	value := os.get_env_buf(buf[:], "VIZZA_LOG_LEVEL")
+	value := os.get_env_buf(buf[:], "ZELDA_ENGINE_LOG_LEVEL")
 	if len(value) > 0 {
 		log_level = log_parse_level(value)
 	}

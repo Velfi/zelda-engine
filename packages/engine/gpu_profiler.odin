@@ -89,7 +89,7 @@ gpu_profiler_init :: proc(ctx: ^Vk_Context) -> bool {
 
 gpu_profiler_env_enabled :: proc() -> bool {
 	buf: [16]u8
-	value := os.get_env_buf(buf[:], "VIZZA_GPU_PROFILER")
+	value := os.get_env_buf(buf[:], "ZELDA_ENGINE_GPU_PROFILER")
 	switch value {
 	case "1", "true", "TRUE", "True", "on", "ON", "On", "yes", "YES", "Yes":
 		return true

@@ -8,7 +8,11 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
 		return false
 	}
 
-	format := vk_choose_surface_format(ctx.physical_device, ctx.surface)
+	format, format_found := vk_choose_surface_format(ctx.physical_device, ctx.surface)
+	if !format_found {
+		log_error("vk_create_swapchain: an 8-bit sRGB nonlinear surface format is required")
+		return false
+	}
 	present_mode := vk_choose_present_mode(ctx.physical_device, ctx.surface, ctx.capture_enabled)
 	extent := vk_choose_extent(caps, width, height)
 	usage := vk_swapchain_image_usage(ctx, caps)
@@ -212,23 +216,28 @@ vk_destroy_swapchain_resources :: proc(ctx: ^Vk_Context) {
 	ctx.swapchain_image_count = 0
 }
 
-vk_choose_surface_format :: proc(device: vk.PhysicalDevice, surface: vk.SurfaceKHR) -> vk.SurfaceFormatKHR {
+vk_choose_surface_format :: proc(device: vk.PhysicalDevice, surface: vk.SurfaceKHR) -> (vk.SurfaceFormatKHR, bool) {
 	count: u32
 	_ = vk.GetPhysicalDeviceSurfaceFormatsKHR(device, surface, &count, nil)
 	if count == 0 {
-		return {format = .B8G8R8A8_UNORM, colorSpace = .SRGB_NONLINEAR}
+		return {}, false
 	}
 	formats, alloc_err := make([]vk.SurfaceFormatKHR, int(count), context.temp_allocator)
 	if alloc_err != nil {
-		return {format = .B8G8R8A8_UNORM, colorSpace = .SRGB_NONLINEAR}
+		return {}, false
 	}
 	_ = vk.GetPhysicalDeviceSurfaceFormatsKHR(device, surface, &count, raw_data(formats))
 	for format in formats {
 		if format.format == .B8G8R8A8_SRGB && format.colorSpace == .SRGB_NONLINEAR {
-			return format
+			return format, true
 		}
 	}
-	return formats[0]
+	for format in formats {
+		if format.format == .R8G8B8A8_SRGB && format.colorSpace == .SRGB_NONLINEAR {
+			return format, true
+		}
+	}
+	return {}, false
 }
 
 vk_choose_present_mode :: proc(device: vk.PhysicalDevice, surface: vk.SurfaceKHR, profiling_capture: bool) -> vk.PresentModeKHR {

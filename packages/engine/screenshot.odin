@@ -261,7 +261,9 @@ screenshot_encode_png :: proc(out: ^bytes.Buffer, rgb: []image.RGB_Pixel, width,
 		u8(height >> 24), u8(height >> 16), u8(height >> 8), u8(height),
 		8, 2, 0, 0, 0,
 	}
+	srgb_rendering_intent := [1]u8{0}
 	return screenshot_png_write_chunk(out, "IHDR", ihdr[:]) &&
+		screenshot_png_write_chunk(out, "sRGB", srgb_rendering_intent[:]) &&
 		screenshot_png_write_chunk(out, "IDAT", zlib.buf[:]) &&
 		screenshot_png_write_chunk(out, "IEND", nil)
 }

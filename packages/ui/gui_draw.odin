@@ -44,6 +44,14 @@ gui_quad :: proc(ctx: ^Gui_Context, p0, p1, p2, p3: Vec2, color: Color) {
 	append(&ctx.commands, Draw_Command{kind = .Filled_Quad, p0 = p0, p1 = p1, p2 = p2, p3 = p3, color = color})
 }
 
+gui_triangle :: proc(ctx: ^Gui_Context, a, b, c: Vec2, color: Color) {
+	append(&ctx.commands, Draw_Command{kind = .Filled_Triangle, p0 = a, p1 = b, p2 = c, color = color})
+}
+
+gui_triangle_colors :: proc(ctx: ^Gui_Context, a, b, c: Vec2, color_a, color_b, color_c: Color) {
+	append(&ctx.commands, Draw_Command{kind = .Gradient_Triangle, p0 = a, p1 = b, p2 = c, color = color_a, color_2 = color_b, color_3 = color_c})
+}
+
 gui_rotated_rect :: proc(ctx: ^Gui_Context, rect: Rect, angle_radians: f32, color: Color) {
 	center := Vec2{rect.x + rect.w * 0.5, rect.y + rect.h * 0.5}
 	p0 := gui_rotate_point({rect.x, rect.y}, center, angle_radians)
