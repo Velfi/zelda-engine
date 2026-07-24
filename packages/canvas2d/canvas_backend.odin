@@ -208,6 +208,160 @@ upload_font :: proc() -> bool {ui.gui_init(&state.gui)
 		{address_mode = .CLAMP_TO_EDGE},
 	)}
 
+backend_create_pipelines :: proc(
+	ctx: ^engine.Vk_Context,
+	layout: vk.PipelineLayout,
+	pipeline, hdr_pipeline, post_pipeline: ^vk.Pipeline,
+) -> bool {
+	vert, frag: engine.Vk_Shader_Module
+	if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.vertex, &vert) do return false
+	defer engine.vk_destroy_shader_module(ctx, &vert)
+	if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.fragment, &frag) do return false
+	defer engine.vk_destroy_shader_module(ctx, &frag)
+	stages := [2]vk.PipelineShaderStageCreateInfo {
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.VERTEX},
+			module = vert.handle,
+			pName = "main",
+		},
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.FRAGMENT},
+			module = frag.handle,
+			pName = "main",
+		},
+	}
+	binding := vk.VertexInputBindingDescription {
+		stride    = u32(size_of(Vertex)),
+		inputRate = .VERTEX,
+	}
+	attrs := [3]vk.VertexInputAttributeDescription {
+		{location = 0, format = .R32G32_SFLOAT, offset = u32(offset_of(Vertex, position))},
+		{location = 1, format = .R32G32_SFLOAT, offset = u32(offset_of(Vertex, uv))},
+		{location = 2, format = .R32G32B32A32_SFLOAT, offset = u32(offset_of(Vertex, color))},
+	}
+	vi := vk.PipelineVertexInputStateCreateInfo {
+		sType                           = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		vertexBindingDescriptionCount   = 1,
+		pVertexBindingDescriptions      = &binding,
+		vertexAttributeDescriptionCount = 3,
+		pVertexAttributeDescriptions    = raw_data(attrs[:]),
+	}
+	ia := vk.PipelineInputAssemblyStateCreateInfo {
+		sType    = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+		topology = .TRIANGLE_LIST,
+	}
+	vp := vk.PipelineViewportStateCreateInfo {
+		sType         = .PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+		viewportCount = 1,
+		scissorCount  = 1,
+	}
+	rs := vk.PipelineRasterizationStateCreateInfo {
+		sType       = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		polygonMode = .FILL,
+		cullMode    = {},
+		frontFace   = .COUNTER_CLOCKWISE,
+		lineWidth   = 1,
+	}
+	ms := vk.PipelineMultisampleStateCreateInfo {
+		sType                = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		rasterizationSamples = {._1},
+	}
+	ca := vk.PipelineColorBlendAttachmentState {
+		blendEnable         = true,
+		srcColorBlendFactor = .SRC_ALPHA,
+		dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+		colorBlendOp        = .ADD,
+		srcAlphaBlendFactor = .ONE,
+		dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
+		alphaBlendOp        = .ADD,
+		colorWriteMask      = {.R, .G, .B, .A},
+	}
+	cb := vk.PipelineColorBlendStateCreateInfo {
+		sType           = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		attachmentCount = 1,
+		pAttachments    = &ca,
+	}
+	ds := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
+	di := vk.PipelineDynamicStateCreateInfo {
+		sType             = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+		dynamicStateCount = 2,
+		pDynamicStates    = raw_data(ds[:]),
+	}
+	rendering := engine.vk_pipeline_rendering_info(&ctx.swapchain_format)
+	info := vk.GraphicsPipelineCreateInfo {
+		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
+		pNext               = &rendering,
+		stageCount          = 2,
+		pStages             = raw_data(stages[:]),
+		pVertexInputState   = &vi,
+		pInputAssemblyState = &ia,
+		pViewportState      = &vp,
+		pRasterizationState = &rs,
+		pMultisampleState   = &ms,
+		pColorBlendState    = &cb,
+		pDynamicState       = &di,
+		layout              = layout,
+	}
+	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, pipeline) != .SUCCESS do return false
+	hdr_format := vk.Format.R16G16B16A16_SFLOAT
+	hdr_rendering := engine.vk_pipeline_rendering_info(&hdr_format)
+	info.pNext = &hdr_rendering
+	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, hdr_pipeline) != .SUCCESS do return false
+	post_vert, post_frag: engine.Vk_Shader_Module
+	if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.post_vertex, &post_vert) do return false
+	defer engine.vk_destroy_shader_module(ctx, &post_vert)
+	if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.post_fragment, &post_frag) do return false
+	defer engine.vk_destroy_shader_module(ctx, &post_frag)
+	post_stages := [2]vk.PipelineShaderStageCreateInfo {
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.VERTEX},
+			module = post_vert.handle,
+			pName = "main",
+		},
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.FRAGMENT},
+			module = post_frag.handle,
+			pName = "main",
+		},
+	}
+	empty_vi := vk.PipelineVertexInputStateCreateInfo {
+		sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+	}
+	post_ca := ca
+	post_ca.blendEnable = false
+	post_cb := cb
+	post_cb.pAttachments = &post_ca
+	post_rendering := engine.vk_pipeline_rendering_info(&ctx.swapchain_format)
+	info.pNext = &post_rendering
+	info.pStages = raw_data(post_stages[:])
+	info.pVertexInputState = &empty_vi
+	info.pColorBlendState = &post_cb
+	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, post_pipeline) != .SUCCESS do return false
+	return true
+}
+
+ReloadShaders :: proc() -> bool {
+	if !state.initialized || state.ctx.device == nil do return false
+	_ = vk.DeviceWaitIdle(state.ctx.device)
+	next, next_hdr, next_post: vk.Pipeline
+	if !backend_create_pipelines(&state.ctx, state.pipeline_layout, &next, &next_hdr, &next_post) {
+		if next != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, next, nil)
+		if next_hdr != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, next_hdr, nil)
+		if next_post != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, next_post, nil)
+		return false
+	}
+	old, old_hdr, old_post := state.pipeline, state.hdr_pipeline, state.post_pipeline
+	state.pipeline, state.hdr_pipeline, state.post_pipeline = next, next_hdr, next_post
+	if old != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, old, nil)
+	if old_hdr != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, old_hdr, nil)
+	if old_post != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, old_post, nil)
+	return true
+}
+
 backend_init :: proc() -> bool {
 	if !render2d.descriptor_valid(state.renderer_descriptor) do return false
 	ctx := &state.ctx; if !engine.vk_context_init(ctx, state.window, state.width, state.height, .7, true) do return false
