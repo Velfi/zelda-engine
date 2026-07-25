@@ -80,6 +80,7 @@ gpu_profiler_init :: proc(ctx: ^Vk_Context) -> bool {
 			ctx.gpu_profiler.last_sample.supported = false
 			return true
 		}
+		vk_set_debug_name(ctx, .QUERY_POOL, auto_cast ctx.gpu_profiler.frames[i].query_pool, "GPU profiler query pool")
 	}
 	ctx.gpu_profiler.enabled = true
 	ctx.gpu_profiler.last_sample.enabled = true

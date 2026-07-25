@@ -262,6 +262,7 @@ State :: struct {
 	dynamic_pixels:                            [MAX_TEXTURES][dynamic]u8,
 	dynamic_pending:                           [MAX_TEXTURES]bool,
 	depth:                                     resources.Image,
+	depth_initialized:                         bool,
 	world_scene:                               resources.Image,
 	world_render_width, world_render_height:   u32,
 	world_scene_sample_ready:                  bool,

@@ -306,10 +306,12 @@ backend_create_pipelines :: proc(
 		layout              = layout,
 	}
 	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, pipeline) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .PIPELINE, auto_cast pipeline^, "canvas graphics pipeline")
 	hdr_format := vk.Format.R16G16B16A16_SFLOAT
 	hdr_rendering := engine.vk_pipeline_rendering_info(&hdr_format)
 	info.pNext = &hdr_rendering
 	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, hdr_pipeline) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .PIPELINE, auto_cast hdr_pipeline^, "canvas HDR pipeline")
 	post_vert, post_frag: engine.Vk_Shader_Module
 	if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.post_vertex, &post_vert) do return false
 	defer engine.vk_destroy_shader_module(ctx, &post_vert)
@@ -342,6 +344,7 @@ backend_create_pipelines :: proc(
 	info.pVertexInputState = &empty_vi
 	info.pColorBlendState = &post_cb
 	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, post_pipeline) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .PIPELINE, auto_cast post_pipeline^, "canvas post-process pipeline")
 	return true
 }
 
@@ -386,6 +389,7 @@ backend_init :: proc() -> bool {
 		bindingCount = 2,
 		pBindings    = raw_data(bindings[:]),
 	}; if vk.CreateDescriptorSetLayout(ctx.device, &li, nil, &state.descriptor_layout) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .DESCRIPTOR_SET_LAYOUT, auto_cast state.descriptor_layout, "canvas descriptor set layout")
 	ps := [2]vk.DescriptorPoolSize {
 		{type = .SAMPLED_IMAGE, descriptorCount = MAX_TEXTURES},
 		{type = .SAMPLER, descriptorCount = MAX_TEXTURES},
@@ -395,12 +399,14 @@ backend_init :: proc() -> bool {
 		poolSizeCount = 2,
 		pPoolSizes    = raw_data(ps[:]),
 	}; if vk.CreateDescriptorPool(ctx.device, &pi, nil, &state.descriptor_pool) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .DESCRIPTOR_POOL, auto_cast state.descriptor_pool, "canvas descriptor pool")
 	ai := vk.DescriptorSetAllocateInfo {
 		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
 		descriptorPool     = state.descriptor_pool,
 		descriptorSetCount = MAX_TEXTURES,
 		pSetLayouts        = nil,
 	}; layouts: [MAX_TEXTURES]vk.DescriptorSetLayout; for &layout in layouts do layout = state.descriptor_layout; ai.pSetLayouts = raw_data(layouts[:]); if vk.AllocateDescriptorSets(ctx.device, &ai, raw_data(state.descriptors[:])) != .SUCCESS do return false
+	for &descriptor in state.descriptors do engine.vk_set_debug_name(ctx, .DESCRIPTOR_SET, auto_cast descriptor, "canvas descriptor set")
 	if !upload_font() do return false; ii := vk.DescriptorImageInfo {
 		imageView   = state.textures[0].view,
 		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
@@ -434,6 +440,7 @@ backend_init :: proc() -> bool {
 		pushConstantRangeCount = 1,
 		pPushConstantRanges    = &pr,
 	}; if vk.CreatePipelineLayout(ctx.device, &pli, nil, &state.pipeline_layout) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .PIPELINE_LAYOUT, auto_cast state.pipeline_layout, "canvas pipeline layout")
 	vert, frag: engine.Vk_Shader_Module
 	if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.vertex, &vert) do return false
 	defer engine.vk_destroy_shader_module(ctx, &vert)
@@ -515,10 +522,12 @@ backend_init :: proc() -> bool {
 		layout              = state.pipeline_layout,
 	}
 	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, &state.pipeline) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .PIPELINE, auto_cast state.pipeline, "canvas graphics pipeline")
 	hdr_format := vk.Format.R16G16B16A16_SFLOAT
 	hdr_rendering := engine.vk_pipeline_rendering_info(&hdr_format)
 	info.pNext = &hdr_rendering
 	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, &state.hdr_pipeline) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .PIPELINE, auto_cast state.hdr_pipeline, "canvas HDR pipeline")
 	post_vert, post_frag: engine.Vk_Shader_Module
 	if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.post_vertex, &post_vert) do return false
 	defer engine.vk_destroy_shader_module(ctx, &post_vert)
@@ -546,5 +555,6 @@ backend_init :: proc() -> bool {
 	post_rendering := engine.vk_pipeline_rendering_info(&ctx.swapchain_format)
 	info.pNext = &post_rendering; info.pStages = raw_data(post_stages[:]); info.pVertexInputState = &empty_vi; info.pColorBlendState = &post_cb
 	if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, &info, nil, &state.post_pipeline) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .PIPELINE, auto_cast state.post_pipeline, "canvas post-process pipeline")
 	return true
 }

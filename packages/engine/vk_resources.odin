@@ -90,6 +90,7 @@ vk_allocate_memory_checked :: proc(ctx: ^Vk_Context, alloc: ^vk.MemoryAllocateIn
 		vk_record_allocation_result(ctx, result, resource, u64(alloc.allocationSize))
 		return false
 	}
+	vk_set_debug_name(ctx, .DEVICE_MEMORY, auto_cast out^, resource)
 	return true
 }
 
@@ -109,6 +110,7 @@ vk_create_host_buffer :: proc(ctx: ^Vk_Context, size: vk.DeviceSize, usage: vk.B
 	if vk.CreateBuffer(ctx.device, &info, nil, &out.handle) != .SUCCESS {
 		return false
 	}
+	vk_set_debug_name(ctx, .BUFFER, auto_cast out.handle, "host buffer")
 
 	req: vk.MemoryRequirements
 	vk.GetBufferMemoryRequirements(ctx.device, out.handle, &req)
@@ -181,7 +183,9 @@ vk_load_shader_module :: proc(ctx: ^Vk_Context, path: string, out: ^Vk_Shader_Mo
 		codeSize = len(data),
 		pCode = cast(^u32)raw_data(data),
 	}
-	return vk.CreateShaderModule(ctx.device, &info, nil, &out.handle) == .SUCCESS
+	if vk.CreateShaderModule(ctx.device, &info, nil, &out.handle) != .SUCCESS do return false
+	vk_set_debug_name(ctx, .SHADER_MODULE, auto_cast out.handle, path)
+	return true
 }
 
 vk_load_shader_module_with_fallback :: proc(

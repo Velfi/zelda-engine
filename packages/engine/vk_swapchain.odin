@@ -1,5 +1,6 @@
 package engine
 
+import "core:fmt"
 import vk "vendor:vulkan"
 
 vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
@@ -60,6 +61,7 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
 	if create_result != .SUCCESS {
 		return false
 	}
+	vk_set_debug_name(ctx, .SWAPCHAIN_KHR, auto_cast ctx.swapchain, "Vulkan swapchain")
 
 	actual_count: u32
 	get_count_result := vk.GetSwapchainImagesKHR(ctx.device, ctx.swapchain, &actual_count, nil)
@@ -74,6 +76,9 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
 	log_debug("vk_create_swapchain: GetSwapchainImages data result=", get_images_result, " stored_count=", actual_count)
 	if get_images_result != .SUCCESS {
 		return false
+	}
+	for i in 0 ..< actual_count {
+		vk_set_debug_name(ctx, .IMAGE, auto_cast ctx.swapchain_images[i], fmt.tprintf("swapchain image %d", i))
 	}
 
 	ctx.swapchain_image_count = actual_count
@@ -103,6 +108,7 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
 			if view_result != .SUCCESS {
 				return false
 			}
+			vk_set_debug_name(ctx, .IMAGE_VIEW, auto_cast ctx.swapchain_image_views[i], fmt.tprintf("swapchain image view %d", i))
 		}
 
 		log_debug("vk_create_swapchain: ready image_count=", ctx.swapchain_image_count, " extent=", ctx.swapchain_extent.width, "x", ctx.swapchain_extent.height)
@@ -132,6 +138,7 @@ vk_create_frame_resources :: proc(ctx: ^Vk_Context) -> bool {
 		if vk.CreateCommandPool(ctx.device, &pool_info, nil, &frame.command_pool) != .SUCCESS {
 			return false
 		}
+		vk_set_debug_name(ctx, .COMMAND_POOL, auto_cast frame.command_pool, fmt.tprintf("frame %d command pool", i))
 		alloc_info := vk.CommandBufferAllocateInfo {
 			sType = .COMMAND_BUFFER_ALLOCATE_INFO,
 			commandPool = frame.command_pool,
@@ -141,13 +148,16 @@ vk_create_frame_resources :: proc(ctx: ^Vk_Context) -> bool {
 		if vk.AllocateCommandBuffers(ctx.device, &alloc_info, &frame.command_buffer) != .SUCCESS {
 			return false
 		}
+		vk_set_debug_name(ctx, .COMMAND_BUFFER, u64(uintptr(frame.command_buffer)), fmt.tprintf("frame %d command buffer", i))
 		semaphore_info := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
 		if vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &frame.image_available) != .SUCCESS {
 			return false
 		}
+		vk_set_debug_name(ctx, .SEMAPHORE, auto_cast frame.image_available, fmt.tprintf("frame %d image available", i))
 		if vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &frame.render_finished) != .SUCCESS {
 			return false
 		}
+		vk_set_debug_name(ctx, .SEMAPHORE, auto_cast frame.render_finished, fmt.tprintf("frame %d render finished", i))
 		fence_info := vk.FenceCreateInfo {
 			sType = .FENCE_CREATE_INFO,
 			flags = {.SIGNALED},
@@ -155,6 +165,7 @@ vk_create_frame_resources :: proc(ctx: ^Vk_Context) -> bool {
 		if vk.CreateFence(ctx.device, &fence_info, nil, &frame.in_flight) != .SUCCESS {
 			return false
 		}
+		vk_set_debug_name(ctx, .FENCE, auto_cast frame.in_flight, fmt.tprintf("frame %d in flight", i))
 	}
 	upload_pool_info := vk.CommandPoolCreateInfo {
 		sType = .COMMAND_POOL_CREATE_INFO,
@@ -164,6 +175,7 @@ vk_create_frame_resources :: proc(ctx: ^Vk_Context) -> bool {
 	if vk.CreateCommandPool(ctx.device, &upload_pool_info, nil, &ctx.upload_command_pool) != .SUCCESS {
 		return false
 	}
+	vk_set_debug_name(ctx, .COMMAND_POOL, auto_cast ctx.upload_command_pool, "upload command pool")
 	upload_alloc_info := vk.CommandBufferAllocateInfo {
 		sType = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool = ctx.upload_command_pool,
@@ -173,6 +185,7 @@ vk_create_frame_resources :: proc(ctx: ^Vk_Context) -> bool {
 	if vk.AllocateCommandBuffers(ctx.device, &upload_alloc_info, &ctx.upload_command_buffer) != .SUCCESS {
 		return false
 	}
+	vk_set_debug_name(ctx, .COMMAND_BUFFER, u64(uintptr(ctx.upload_command_buffer)), "upload command buffer")
 	ctx.frame_resources_ready = true
 	return true
 }

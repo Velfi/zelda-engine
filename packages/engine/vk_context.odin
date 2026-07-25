@@ -5,6 +5,7 @@ ENGINE_VERSION_MINOR :: u32(1)
 ENGINE_VERSION_PATCH :: u32(0)
 
 import "core:time"
+import "core:strings"
 import vk "vendor:vulkan"
 import sdl "vendor:sdl3"
 
@@ -243,6 +244,16 @@ vk_context_init :: proc(ctx: ^Vk_Context, window: ^sdl.Window, width, height: i3
 		return false
 	}
 	vk.load_proc_addresses(ctx.device)
+	ctx.supports_debug_utils = vk.SetDebugUtilsObjectNameEXT != nil ||
+		vk.CmdBeginDebugUtilsLabelEXT != nil ||
+		vk.CmdEndDebugUtilsLabelEXT != nil
+	vk_set_debug_name(ctx, .INSTANCE, u64(uintptr(ctx.instance)), "Vulkan instance")
+	vk_set_debug_name(ctx, .SURFACE_KHR, auto_cast ctx.surface, "Vulkan surface")
+	vk_set_debug_name(ctx, .PHYSICAL_DEVICE, u64(uintptr(ctx.physical_device)), "Vulkan physical device")
+	vk_set_debug_name(ctx, .DEVICE, u64(uintptr(ctx.device)), "Vulkan device")
+	vk_set_debug_name(ctx, .QUEUE, u64(uintptr(ctx.graphics_queue)), "Vulkan graphics queue")
+	vk_set_debug_name(ctx, .QUEUE, u64(uintptr(ctx.compute_queue)), "Vulkan compute queue")
+	vk_set_debug_name(ctx, .QUEUE, u64(uintptr(ctx.present_queue)), "Vulkan present queue")
 
 	if !vk_create_swapchain(ctx, width, height) {
 		log_error("vk_context_init: vk_create_swapchain failed")
@@ -466,10 +477,12 @@ vk_pick_physical_device :: proc(ctx: ^Vk_Context, configured_ceiling_fraction: f
 }
 
 vk_device_supports_required_13_features :: proc(device: vk.PhysicalDevice) -> bool {
+	features11 := vk.PhysicalDeviceVulkan11Features{sType = .PHYSICAL_DEVICE_VULKAN_1_1_FEATURES}
 	features13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES}
-	features2 := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &features13}
+	features11.pNext = &features13
+	features2 := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &features11}
 	vk.GetPhysicalDeviceFeatures2(device, &features2)
-	return features13.dynamicRendering == true && features13.synchronization2 == true
+	return features11.shaderDrawParameters == true && features13.dynamicRendering == true && features13.synchronization2 == true
 }
 
 vk_find_queue_families :: proc(device: vk.PhysicalDevice, surface: vk.SurfaceKHR) -> Vk_Queue_Family_Indices {
@@ -561,13 +574,19 @@ vk_create_logical_device :: proc(ctx: ^Vk_Context) -> bool {
 		extensions[extension_count] = vk.EXT_DEVICE_FAULT_EXTENSION_NAME
 		extension_count += 1
 	}
+	queried_features11 := vk.PhysicalDeviceVulkan11Features{sType = .PHYSICAL_DEVICE_VULKAN_1_1_FEATURES}
 	queried_features13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES}
 	queried_fault := vk.PhysicalDeviceFaultFeaturesEXT{sType = .PHYSICAL_DEVICE_FAULT_FEATURES_EXT, pNext = &queried_features13}
-	features2 := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &queried_fault}
+	queried_features11.pNext = &queried_fault
+	features2 := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &queried_features11}
 	vk.GetPhysicalDeviceFeatures2(ctx.physical_device, &features2)
-	if !queried_features13.dynamicRendering || !queried_features13.synchronization2 {
-		write_fixed_string(ctx.caps.adapter_name[:], "Vulkan 1.3 dynamicRendering and synchronization2 are required")
+	if !queried_features11.shaderDrawParameters || !queried_features13.dynamicRendering || !queried_features13.synchronization2 {
+		write_fixed_string(ctx.caps.adapter_name[:], "Vulkan shaderDrawParameters, dynamicRendering, and synchronization2 are required")
 		return false
+	}
+	enabled_features11 := vk.PhysicalDeviceVulkan11Features {
+		sType = .PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+		shaderDrawParameters = true,
 	}
 	enabled_features13 := vk.PhysicalDeviceVulkan13Features {
 		sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
@@ -579,9 +598,10 @@ vk_create_logical_device :: proc(ctx: ^Vk_Context) -> bool {
 		pNext = &enabled_features13,
 		deviceFault = b32(supports_device_fault && queried_fault.deviceFault == true),
 	}
+	enabled_features11.pNext = &enabled_fault
 	create_info := vk.DeviceCreateInfo {
 		sType = .DEVICE_CREATE_INFO,
-		pNext = &enabled_fault,
+		pNext = &enabled_features11,
 		queueCreateInfoCount = unique_count,
 		pQueueCreateInfos = raw_data(queue_infos[:]),
 		enabledExtensionCount = extension_count,
@@ -594,9 +614,23 @@ vk_create_logical_device :: proc(ctx: ^Vk_Context) -> bool {
 	vk.GetDeviceQueue(ctx.device, u32(ctx.caps.queue_families.graphics), 0, &ctx.graphics_queue)
 	vk.GetDeviceQueue(ctx.device, u32(ctx.caps.queue_families.compute), 0, &ctx.compute_queue)
 	vk.GetDeviceQueue(ctx.device, u32(ctx.caps.queue_families.present), 0, &ctx.present_queue)
-	ctx.supports_debug_utils = vk.CmdBeginDebugUtilsLabelEXT != nil && vk.CmdEndDebugUtilsLabelEXT != nil
 	ctx.caps.supports_dynamic_rendering = true
 	ctx.caps.supports_synchronization2 = true
 	ctx.caps.supports_device_fault = enabled_fault.deviceFault == true
 	return true
+}
+
+vk_set_debug_name :: proc(ctx: ^Vk_Context, object_type: vk.ObjectType, object_handle: u64, name: string) {
+	if ctx == nil || ctx.device == nil || !ctx.supports_debug_utils || vk.SetDebugUtilsObjectNameEXT == nil {
+		return
+	}
+	if object_handle == 0 || len(name) == 0 do return
+	name_cstr := strings.clone_to_cstring(name, context.temp_allocator)
+	info := vk.DebugUtilsObjectNameInfoEXT {
+		sType = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+		objectType = object_type,
+		objectHandle = object_handle,
+		pObjectName = name_cstr,
+	}
+	_ = vk.SetDebugUtilsObjectNameEXT(ctx.device, &info)
 }

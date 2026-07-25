@@ -29,6 +29,7 @@ create_color_pipeline_variants :: proc(
 		) != .SUCCESS {
 			return false
 		}
+		engine.vk_set_debug_name(ctx, .PIPELINE, auto_cast pipelines[index], "3D graphics pipeline")
 	}
 	return true
 }

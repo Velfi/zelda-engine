@@ -41,6 +41,7 @@ image_create :: proc(
 	out^ = {}
 	info := vk.ImageCreateInfo{sType = .IMAGE_CREATE_INFO, imageType = .D2, format = format, extent = {width, height, 1}, mipLevels = 1, arrayLayers = 1, samples = samples, tiling = .OPTIMAL, usage = usage, sharingMode = .EXCLUSIVE, initialLayout = .UNDEFINED}
 	if vk.CreateImage(ctx.device, &info, nil, &out.image) != .SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .IMAGE, auto_cast out.image, allocation_name)
 	requirements: vk.MemoryRequirements
 	vk.GetImageMemoryRequirements(ctx.device, out.image, &requirements)
 	memory_type, found := engine.vk_find_memory_type(ctx, requirements.memoryTypeBits, {.DEVICE_LOCAL})
@@ -50,6 +51,7 @@ image_create :: proc(
 	if vk.BindImageMemory(ctx.device, out.image, out.memory, 0) != .SUCCESS {image_destroy(out, ctx); return false}
 	view_info := vk.ImageViewCreateInfo{sType = .IMAGE_VIEW_CREATE_INFO, image = out.image, viewType = .D2, format = format, subresourceRange = {aspectMask = aspect, baseMipLevel = 0, levelCount = 1, baseArrayLayer = 0, layerCount = 1}}
 	if vk.CreateImageView(ctx.device, &view_info, nil, &out.view) != .SUCCESS {image_destroy(out, ctx); return false}
+	engine.vk_set_debug_name(ctx, .IMAGE_VIEW, auto_cast out.view, allocation_name)
 	out.format = format
 	out.width = width
 	out.height = height
@@ -72,6 +74,7 @@ image_array_create :: proc(
 	if cube_compatible do flags = {.CUBE_COMPATIBLE}
 	info := vk.ImageCreateInfo{sType=.IMAGE_CREATE_INFO,flags=flags,imageType=.D2,format=format,extent={width,height,1},mipLevels=1,arrayLayers=layers,samples={._1},tiling=.OPTIMAL,usage=usage,sharingMode=.EXCLUSIVE,initialLayout=.UNDEFINED}
 	if vk.CreateImage(ctx.device,&info,nil,&out.image)!=.SUCCESS do return false
+	engine.vk_set_debug_name(ctx, .IMAGE, auto_cast out.image, allocation_name)
 	requirements: vk.MemoryRequirements;vk.GetImageMemoryRequirements(ctx.device,out.image,&requirements)
 	memory_type,found:=engine.vk_find_memory_type(ctx,requirements.memoryTypeBits,{.DEVICE_LOCAL});if !found {image_destroy(out,ctx);return false}
 	allocation:=vk.MemoryAllocateInfo{sType=.MEMORY_ALLOCATE_INFO,allocationSize=requirements.size,memoryTypeIndex=memory_type}
@@ -79,6 +82,7 @@ image_array_create :: proc(
 	if vk.BindImageMemory(ctx.device,out.image,out.memory,0)!=.SUCCESS {image_destroy(out,ctx);return false}
 	view_info:=vk.ImageViewCreateInfo{sType=.IMAGE_VIEW_CREATE_INFO,image=out.image,viewType=view_type,format=format,subresourceRange={aspectMask=aspect,baseMipLevel=0,levelCount=1,baseArrayLayer=0,layerCount=layers}}
 	if vk.CreateImageView(ctx.device,&view_info,nil,&out.view)!=.SUCCESS {image_destroy(out,ctx);return false}
+	engine.vk_set_debug_name(ctx, .IMAGE_VIEW, auto_cast out.view, allocation_name)
 	out.format=format;out.width=width;out.height=height
 	return true
 }
@@ -108,6 +112,7 @@ texture_upload_rgba8 :: proc(ctx: ^engine.Vk_Context, pixels: []u8, width, heigh
 	// linearly; UI pixel art has its own upload path and is unaffected.
 	sampler_info := vk.SamplerCreateInfo{sType = .SAMPLER_CREATE_INFO, magFilter = .LINEAR, minFilter = .LINEAR, mipmapMode = .LINEAR, addressModeU = options.address_mode, addressModeV = options.address_mode, addressModeW = options.address_mode, minLod = 0, maxLod = 0}
 	if vk.CreateSampler(ctx.device, &sampler_info, nil, &out.sampler) != .SUCCESS {image_destroy(out, ctx); return false}
+	engine.vk_set_debug_name(ctx, .SAMPLER, auto_cast out.sampler, "renderer texture sampler")
 	return true
 }
 

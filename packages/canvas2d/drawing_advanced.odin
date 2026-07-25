@@ -471,7 +471,11 @@ ensure_depth_attachment :: proc() -> bool {
 	if state.depth.width == extent.width && state.depth.height == extent.height && state.depth.view != vk.ImageView(0) do return true
 	_ = vk.DeviceWaitIdle(
 		state.ctx.device,
-	); resources.image_destroy(&state.depth, &state.ctx); return resources.depth_create(&state.ctx, extent.width, extent.height, &state.depth)
+	)
+	resources.image_destroy(&state.depth, &state.ctx)
+	created := resources.depth_create(&state.ctx, extent.width, extent.height, &state.depth)
+	state.depth_initialized = false
+	return created
 }
 
 ensure_world_scene :: proc() -> bool {
@@ -509,6 +513,7 @@ ensure_world_scene :: proc() -> bool {
 		resources.image_destroy(&state.world_scene, &state.ctx)
 		return false
 	}
+	engine.vk_set_debug_name(&state.ctx, .SAMPLER, auto_cast state.world_scene.sampler, "canvas world scene sampler")
 	image_info := vk.DescriptorImageInfo {
 		imageView = state.world_scene.view,
 		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
@@ -553,6 +558,7 @@ ensure_hdr_scene :: proc() -> bool {
 	}
 	if vk.CreateSampler(state.ctx.device, &sampler_info, nil, &state.hdr_scene.sampler) !=
 	   .SUCCESS {resources.image_destroy(&state.hdr_scene, &state.ctx); return false}
+	engine.vk_set_debug_name(&state.ctx, .SAMPLER, auto_cast state.hdr_scene.sampler, "canvas HDR scene sampler")
 	ii := vk.DescriptorImageInfo {
 		imageView   = state.hdr_scene.view,
 		imageLayout = .SHADER_READ_ONLY_OPTIMAL,

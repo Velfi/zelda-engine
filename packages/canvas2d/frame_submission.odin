@@ -350,14 +350,36 @@ EndDrawing :: proc() {
 		ctx,
 		frame.command_buffer,
 		image,
-		{.TOP_OF_PIPE},
+		{.COLOR_ATTACHMENT_OUTPUT},
 		{.COLOR_ATTACHMENT_OUTPUT},
 		{},
 		{.COLOR_ATTACHMENT_WRITE},
 		.PRESENT_SRC_KHR,
 		.COLOR_ATTACHMENT_OPTIMAL,
 	)
-	if state.world_pass != nil do engine.vk_cmd_image_barrier2(ctx, frame.command_buffer, state.depth.image, {.TOP_OF_PIPE}, {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS}, {}, {.DEPTH_STENCIL_ATTACHMENT_WRITE}, .UNDEFINED, .DEPTH_ATTACHMENT_OPTIMAL, {.DEPTH})
+	if state.world_pass != nil {
+		depth_src_stage := vk.PipelineStageFlags2{.TOP_OF_PIPE}
+		depth_src_access := vk.AccessFlags2{}
+		depth_old_layout := vk.ImageLayout.UNDEFINED
+		if state.depth_initialized {
+			depth_src_stage = {.LATE_FRAGMENT_TESTS}
+			depth_src_access = {.DEPTH_STENCIL_ATTACHMENT_WRITE}
+			depth_old_layout = .DEPTH_ATTACHMENT_OPTIMAL
+		}
+		engine.vk_cmd_image_barrier2(
+			ctx,
+			frame.command_buffer,
+			state.depth.image,
+			depth_src_stage,
+			{.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
+			depth_src_access,
+			{.DEPTH_STENCIL_ATTACHMENT_WRITE},
+			depth_old_layout,
+			.DEPTH_ATTACHMENT_OPTIMAL,
+			{.DEPTH},
+		)
+		state.depth_initialized = true
+	}
 	if fixed_world {
 		engine.vk_cmd_image_barrier2(
 			ctx,
