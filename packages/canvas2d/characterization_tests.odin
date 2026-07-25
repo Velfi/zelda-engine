@@ -7,7 +7,8 @@ import vk "vendor:vulkan"
 import engine "zelda_engine:engine"
 
 characterization_begin :: proc() {
-	state = {}
+	if state == nil do state = new(State)
+	state^ = {}
 	state.vertices = make([dynamic]Vertex, 0, 256)
 	state.indices = make([dynamic]u32, 0, 384)
 	state.batches = make([dynamic]Batch, 0, 32)
@@ -21,7 +22,7 @@ characterization_end :: proc() {
 	delete(state.indices)
 	delete(state.batches)
 	if len(state.capture_path) > 0 do delete(state.capture_path)
-	state = {}
+	state^ = {}
 }
 
 expect_vector_near :: proc(t: ^testing.T, actual, expected: Vector2) {

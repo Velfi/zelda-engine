@@ -16,7 +16,7 @@ import render2d "zelda_engine:render2d"
 import resources "zelda_engine:render_resources"
 import ui "zelda_engine:ui"
 SetRendererDescriptor :: proc(descriptor: render2d.Renderer_Descriptor) -> bool {
-	if state.initialized || !render2d.descriptor_valid(descriptor) do return false
+	if !render2d.descriptor_valid(descriptor) do return false
 	state.renderer_descriptor = descriptor
 	return true
 }
@@ -119,10 +119,11 @@ rect :: proc(r: Rectangle, color: Color) {a := transform({r.x, r.y}); b := trans
 	d := transform({r.x, r.y + r.height})
 	quad(a, b, c, d, color)}
 backend_destroy :: proc() {
+	if state == nil do return
 	if !state.initialized {
 		render2d.sdl_input_destroy(&state.platform_input)
 		render2d.sdl_window_destroy(&state.platform_window)
-		state = {}
+		state^ = {}
 		return
 	}
 	render2d.sdl_input_destroy(
@@ -154,7 +155,7 @@ backend_destroy :: proc() {
 	engine.vk_context_destroy(&state.ctx)
 	render2d.sdl_window_destroy(&state.platform_window)
 	state.window = nil
-	state = {}}
+	state^ = {}}
 upload_font :: proc() -> bool {ui.gui_init(&state.gui)
 	// Read the advance from the same loaded face and scale used to rasterize
 	// the atlas. This keeps layout correct when the font asset changes.

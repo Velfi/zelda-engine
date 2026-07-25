@@ -13,8 +13,17 @@ import render2d "zelda_engine:render2d"
 import resources "zelda_engine:render_resources"
 import ui "zelda_engine:ui"
 
-SetConfigFlags :: proc(flags: ConfigFlags) {state.config_flags = flags}
-InitWindow :: proc(width, height: i32, title: cstring) {state.width = width; state.height = height
+SetConfigFlags :: proc(flags: ConfigFlags) {state_ensure().config_flags = flags}
+InitWindow :: proc(width, height: i32, title: cstring) {
+	state_ensure()
+	if state.initialized {
+		vk.load_proc_addresses(cast(rawptr)sdl.Vulkan_GetVkGetInstanceProcAddr())
+		vk.load_proc_addresses(state.ctx.instance)
+		vk.load_proc_addresses(state.ctx.device)
+		state.running = true
+		return
+	}
+	state.width = width; state.height = height
 	state.running = true
 	state.start = time.tick_now()
 	when ODIN_OS == .Darwin {
@@ -34,7 +43,7 @@ InitWindow :: proc(width, height: i32, title: cstring) {state.width = width; sta
 	state.window = state.platform_window.handle
 	state.initialized = backend_init()
 	state.running = state.initialized}
-CloseWindow :: proc() {backend_destroy()}
+CloseWindow :: proc() {if state != nil do backend_destroy()}
 SetWindowMinSize :: proc(width, height: i32) {_ = render2d.sdl_window_set_minimum_size(
 		&state.platform_window,
 		width,

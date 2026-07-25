@@ -319,7 +319,32 @@ State :: struct {
 	ui_pass_user_data:                         rawptr,
 	gfx_frame_signpost:                        u64,
 }
-state: State
+state: ^State
+
+state_ensure :: proc() -> ^State {
+    if state == nil do state = new(State)
+    return state
+}
+
+// The hot host owns this pointer across dylib swaps. The pointed-to state is
+// valid only while State_Abi_Version stays unchanged.
+SetPersistentState :: proc(persistent: rawptr) {
+    if persistent == nil {
+        _ = state_ensure()
+    } else {
+        state = cast(^State)persistent
+    }
+}
+
+PersistentState :: proc() -> rawptr {
+    return rawptr(state)
+}
+
+CANVAS_STATE_LAYOUT_VERSION :: u64(1)
+
+State_Abi_Version :: proc() -> u64 {
+    return CANVAS_STATE_LAYOUT_VERSION ~ u64(size_of(State))
+}
 
 // SetWorldRenderSize renders the world callback into a fixed-size texture and
 // composites it aspect-fit beneath the native-resolution UI. A zero dimension
