@@ -104,6 +104,30 @@ DrawEffectQuad :: proc(
 }
 GetRenderMetrics :: proc() -> render2d.Frame_Metrics {return state.metrics.last}
 GetMousePosition :: proc() -> Vector2 {return state.mouse}
+GetWorldMousePosition :: proc() -> (position: Vector2, inside: bool) {
+	if state.world_render_width == 0 || state.world_render_height == 0 {
+		return state.mouse, true
+	}
+	window_width := f32(max(GetScreenWidth(), 1))
+	window_height := f32(max(GetScreenHeight(), 1))
+	world_width := f32(state.world_render_width)
+	world_height := f32(state.world_render_height)
+	scale := min(window_width / world_width, window_height / world_height)
+	viewport_width := world_width * scale
+	viewport_height := world_height * scale
+	viewport_x := (window_width - viewport_width) * .5
+	viewport_y := (window_height - viewport_height) * .5
+	position = {
+		(state.mouse.x - viewport_x) / scale,
+		(state.mouse.y - viewport_y) / scale,
+	}
+	inside =
+		state.mouse.x >= viewport_x &&
+		state.mouse.y >= viewport_y &&
+		state.mouse.x < viewport_x + viewport_width &&
+		state.mouse.y < viewport_y + viewport_height
+	return
+}
 GetMouseDelta :: proc() -> Vector2 {return state.mouse_delta}
 GetMouseWheelMove :: proc() -> f32 {return state.mouse_wheel}
 GetMousePinchScale :: proc() -> f32 {return state.mouse_pinch_scale}

@@ -121,6 +121,15 @@ World_Pass_Context :: struct {
 	logical_extent:     [2]i32,
 }
 World_Pass_Callback :: #type proc(pass: ^World_Pass_Context, user_data: rawptr)
+Ui_Pass_Context :: struct {
+	ctx:                ^engine.Vk_Context,
+	frame:              engine.Vk_Frame,
+	color_view:         vk.ImageView,
+	color_format:       vk.Format,
+	framebuffer_extent: vk.Extent2D,
+	logical_extent:     [2]i32,
+}
+Ui_Pass_Callback :: #type proc(pass: ^Ui_Pass_Context, user_data: rawptr)
 
 Vertex :: render2d.Vertex
 Push :: struct {
@@ -253,6 +262,9 @@ State :: struct {
 	dynamic_pixels:                            [MAX_TEXTURES][dynamic]u8,
 	dynamic_pending:                           [MAX_TEXTURES]bool,
 	depth:                                     resources.Image,
+	world_scene:                               resources.Image,
+	world_render_width, world_render_height:   u32,
+	world_scene_sample_ready:                  bool,
 	texture_count:                             int,
 	texture_width, texture_height:             int,
 	icon_y, icon_width, icon_height:           int,
@@ -298,6 +310,17 @@ State :: struct {
 	gui:                                       ui.Gui_Context,
 	world_pass:                                World_Pass_Callback,
 	world_pass_user_data:                      rawptr,
+	ui_pass:                                   Ui_Pass_Callback,
+	ui_pass_user_data:                         rawptr,
 	gfx_frame_signpost:                        u64,
 }
 state: State
+
+// SetWorldRenderSize renders the world callback into a fixed-size texture and
+// composites it aspect-fit beneath the native-resolution UI. A zero dimension
+// restores direct-to-swapchain world rendering. The attachments are rebuilt
+// lazily at the next frame boundary when the size changes after initialization.
+SetWorldRenderSize :: proc(width, height: u32) {
+	state.world_render_width = width
+	state.world_render_height = height
+}

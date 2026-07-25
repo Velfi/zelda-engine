@@ -459,12 +459,81 @@ SetWorldPass :: proc(callback: World_Pass_Callback, user_data: rawptr = nil) {st
 		callback
 	state.world_pass_user_data = user_data}
 
+SetUIPass :: proc(callback: Ui_Pass_Callback, user_data: rawptr = nil) {state.ui_pass =
+		callback
+	state.ui_pass_user_data = user_data}
+
 ensure_depth_attachment :: proc() -> bool {
-	extent :=
-		state.ctx.swapchain_extent; if state.depth.width == extent.width && state.depth.height == extent.height && state.depth.view != vk.ImageView(0) do return true
+	extent := state.ctx.swapchain_extent
+	if state.world_render_width > 0 && state.world_render_height > 0 {
+		extent = {state.world_render_width, state.world_render_height}
+	}
+	if state.depth.width == extent.width && state.depth.height == extent.height && state.depth.view != vk.ImageView(0) do return true
 	_ = vk.DeviceWaitIdle(
 		state.ctx.device,
 	); resources.image_destroy(&state.depth, &state.ctx); return resources.depth_create(&state.ctx, extent.width, extent.height, &state.depth)
+}
+
+ensure_world_scene :: proc() -> bool {
+	if state.world_render_width == 0 || state.world_render_height == 0 do return true
+	if state.world_scene.width == state.world_render_width &&
+	   state.world_scene.height == state.world_render_height &&
+	   state.world_scene.view != vk.ImageView(0) {
+		return true
+	}
+	_ = vk.DeviceWaitIdle(state.ctx.device)
+	resources.image_destroy(&state.world_scene, &state.ctx)
+	state.world_scene_sample_ready = false
+	created := resources.image_create(
+		&state.ctx,
+		state.world_render_width,
+		state.world_render_height,
+		state.ctx.swapchain_format,
+		{.COLOR_ATTACHMENT, .SAMPLED},
+		{.COLOR},
+		{._1},
+		&state.world_scene,
+		"fixed-resolution world scene",
+	)
+	if !created do return false
+	sampler_info := vk.SamplerCreateInfo {
+		sType = .SAMPLER_CREATE_INFO,
+		magFilter = .LINEAR,
+		minFilter = .LINEAR,
+		addressModeU = .CLAMP_TO_EDGE,
+		addressModeV = .CLAMP_TO_EDGE,
+		addressModeW = .CLAMP_TO_EDGE,
+		maxLod = 0,
+	}
+	if vk.CreateSampler(state.ctx.device, &sampler_info, nil, &state.world_scene.sampler) != .SUCCESS {
+		resources.image_destroy(&state.world_scene, &state.ctx)
+		return false
+	}
+	image_info := vk.DescriptorImageInfo {
+		imageView = state.world_scene.view,
+		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+	}
+	sampler := vk.DescriptorImageInfo {sampler = state.world_scene.sampler}
+	writes := [2]vk.WriteDescriptorSet {
+		{
+			sType = .WRITE_DESCRIPTOR_SET,
+			dstSet = state.descriptors[MAX_TEXTURES - 2],
+			dstBinding = 0,
+			descriptorCount = 1,
+			descriptorType = .SAMPLED_IMAGE,
+			pImageInfo = &image_info,
+		},
+		{
+			sType = .WRITE_DESCRIPTOR_SET,
+			dstSet = state.descriptors[MAX_TEXTURES - 2],
+			dstBinding = 1,
+			descriptorCount = 1,
+			descriptorType = .SAMPLER,
+			pImageInfo = &sampler,
+		},
+	}
+	vk.UpdateDescriptorSets(state.ctx.device, 2, raw_data(writes[:]), 0, nil)
+	return true
 }
 
 ensure_hdr_scene :: proc() -> bool {
