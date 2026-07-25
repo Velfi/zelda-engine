@@ -370,6 +370,10 @@ EndDrawing :: proc() {
 	world_resolve := world_resolve_configured
 	if fixed_world_configured do world_extent = {state.world_render_width, state.world_render_height}
 	image := ctx.swapchain_images[frame.image_index]
+	swapchain_old_layout := vk.ImageLayout.PRESENT_SRC_KHR
+	if !ctx.swapchain_image_initialized[frame.image_index] {
+		swapchain_old_layout = .UNDEFINED
+	}
 	engine.vk_cmd_image_barrier2(
 		ctx,
 		frame.command_buffer,
@@ -378,9 +382,10 @@ EndDrawing :: proc() {
 		{.COLOR_ATTACHMENT_OUTPUT},
 		{},
 		{.COLOR_ATTACHMENT_WRITE},
-		.PRESENT_SRC_KHR,
+		swapchain_old_layout,
 		.COLOR_ATTACHMENT_OPTIMAL,
 	)
+	ctx.swapchain_image_initialized[frame.image_index] = true
 	if state.world_pass != nil {
 		depth_src_stage := vk.PipelineStageFlags2{.TOP_OF_PIPE}
 		depth_src_access := vk.AccessFlags2{}

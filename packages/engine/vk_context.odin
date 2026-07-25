@@ -142,6 +142,8 @@ Vk_Context :: struct {
 	swapchain: vk.SwapchainKHR,
 	swapchain_images: [MAX_SWAPCHAIN_IMAGES]vk.Image,
 	swapchain_image_views: [MAX_SWAPCHAIN_IMAGES]vk.ImageView,
+	swapchain_render_finished: [MAX_SWAPCHAIN_IMAGES]vk.Semaphore,
+	swapchain_image_initialized: [MAX_SWAPCHAIN_IMAGES]bool,
 	swapchain_image_count: u32,
 	swapchain_format: vk.Format,
 	swapchain_extent: vk.Extent2D,

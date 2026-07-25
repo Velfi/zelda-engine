@@ -82,6 +82,9 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
 	}
 
 	ctx.swapchain_image_count = actual_count
+	for i in 0 ..< actual_count {
+		ctx.swapchain_image_initialized[i] = false
+	}
 	ctx.swapchain_format = format.format
 	ctx.swapchain_extent = extent
 	ctx.caps.swapchain_format = format.format
@@ -110,6 +113,13 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
 			}
 			vk_set_debug_name(ctx, .IMAGE_VIEW, auto_cast ctx.swapchain_image_views[i], fmt.tprintf("swapchain image view %d", i))
 		}
+	semaphore_info := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO}
+	for i in 0 ..< actual_count {
+		if vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &ctx.swapchain_render_finished[i]) != .SUCCESS {
+			return false
+		}
+		vk_set_debug_name(ctx, .SEMAPHORE, auto_cast ctx.swapchain_render_finished[i], fmt.tprintf("swapchain image %d render finished", i))
+	}
 
 		log_debug("vk_create_swapchain: ready image_count=", ctx.swapchain_image_count, " extent=", ctx.swapchain_extent.width, "x", ctx.swapchain_extent.height)
 
@@ -154,10 +164,6 @@ vk_create_frame_resources :: proc(ctx: ^Vk_Context) -> bool {
 			return false
 		}
 		vk_set_debug_name(ctx, .SEMAPHORE, auto_cast frame.image_available, fmt.tprintf("frame %d image available", i))
-		if vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &frame.render_finished) != .SUCCESS {
-			return false
-		}
-		vk_set_debug_name(ctx, .SEMAPHORE, auto_cast frame.render_finished, fmt.tprintf("frame %d render finished", i))
 		fence_info := vk.FenceCreateInfo {
 			sType = .FENCE_CREATE_INFO,
 			flags = {.SIGNALED},
@@ -196,9 +202,6 @@ vk_destroy_frame_resources :: proc(ctx: ^Vk_Context) {
 		if frame.in_flight != vk.Fence(0) {
 			vk.DestroyFence(ctx.device, frame.in_flight, nil)
 		}
-		if frame.render_finished != vk.Semaphore(0) {
-			vk.DestroySemaphore(ctx.device, frame.render_finished, nil)
-		}
 		if frame.image_available != vk.Semaphore(0) {
 			vk.DestroySemaphore(ctx.device, frame.image_available, nil)
 		}
@@ -217,6 +220,11 @@ vk_destroy_frame_resources :: proc(ctx: ^Vk_Context) {
 
 vk_destroy_swapchain_resources :: proc(ctx: ^Vk_Context) {
 	for i in 0 ..< ctx.swapchain_image_count {
+		if ctx.swapchain_render_finished[i] != vk.Semaphore(0) {
+			vk.DestroySemaphore(ctx.device, ctx.swapchain_render_finished[i], nil)
+			ctx.swapchain_render_finished[i] = vk.Semaphore(0)
+		}
+		ctx.swapchain_image_initialized[i] = false
 		if ctx.swapchain_image_views[i] != vk.ImageView(0) {
 			vk.DestroyImageView(ctx.device, ctx.swapchain_image_views[i], nil)
 			ctx.swapchain_image_views[i] = vk.ImageView(0)

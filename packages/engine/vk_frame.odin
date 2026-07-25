@@ -44,6 +44,11 @@ vk_begin_frame :: proc(ctx: ^Vk_Context) -> (Vk_Frame, bool) {
 		log_warn("vk_begin_frame: acquire suboptimal")
 		ctx.needs_swapchain_recreate = true
 	}
+	if image_index >= ctx.swapchain_image_count || ctx.swapchain_render_finished[image_index] == vk.Semaphore(0) {
+		log_error("vk_begin_frame: acquired invalid swapchain image index=", image_index)
+		return frame, false
+	}
+	state.render_finished = ctx.swapchain_render_finished[image_index]
 
 	command_begin_start := time.tick_now()
 	_ = vk.ResetCommandPool(ctx.device, state.command_pool, {})
