@@ -463,11 +463,24 @@ SetUIPass :: proc(callback: Ui_Pass_Callback, user_data: rawptr = nil) {state.ui
 		callback
 	state.ui_pass_user_data = user_data}
 
-ensure_depth_attachment :: proc() -> bool {
-	extent := state.ctx.swapchain_extent
+world_resolve_required :: proc(
+	has_world_pass: bool,
+	fixed_width, fixed_height: u32,
+	post_process_enabled: bool,
+) -> bool {
+	return has_world_pass &&
+	       ((fixed_width > 0 && fixed_height > 0) || post_process_enabled)
+}
+
+world_scene_extent :: proc() -> vk.Extent2D {
 	if state.world_render_width > 0 && state.world_render_height > 0 {
-		extent = {state.world_render_width, state.world_render_height}
+		return {state.world_render_width, state.world_render_height}
 	}
+	return state.ctx.swapchain_extent
+}
+
+ensure_depth_attachment :: proc() -> bool {
+	extent := world_scene_extent()
 	if state.depth.width == extent.width && state.depth.height == extent.height && state.depth.view != vk.ImageView(0) do return true
 	_ = vk.DeviceWaitIdle(
 		state.ctx.device,
@@ -479,9 +492,11 @@ ensure_depth_attachment :: proc() -> bool {
 }
 
 ensure_world_scene :: proc() -> bool {
-	if state.world_render_width == 0 || state.world_render_height == 0 do return true
-	if state.world_scene.width == state.world_render_width &&
-	   state.world_scene.height == state.world_render_height &&
+	fixed_world := state.world_render_width > 0 && state.world_render_height > 0
+	if !fixed_world && !state.world_post_process_enabled do return true
+	extent := world_scene_extent()
+	if state.world_scene.width == extent.width &&
+	   state.world_scene.height == extent.height &&
 	   state.world_scene.view != vk.ImageView(0) {
 		return true
 	}
@@ -490,14 +505,14 @@ ensure_world_scene :: proc() -> bool {
 	state.world_scene_sample_ready = false
 	created := resources.image_create(
 		&state.ctx,
-		state.world_render_width,
-		state.world_render_height,
+		extent.width,
+		extent.height,
 		state.ctx.swapchain_format,
 		{.COLOR_ATTACHMENT, .SAMPLED},
 		{.COLOR},
 		{._1},
 		&state.world_scene,
-		"fixed-resolution world scene",
+		"world post-process scene",
 	)
 	if !created do return false
 	sampler_info := vk.SamplerCreateInfo {

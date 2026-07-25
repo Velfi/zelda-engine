@@ -70,12 +70,23 @@ Pipeline_Descriptor :: struct {
 	post_process_enabled: bool,
 }
 
+World_Post_Context :: struct {
+	source_extent:    [2]u32,
+	composite_extent: [2]u32,
+	target_extent:    [2]u32,
+}
+
 Renderer_Descriptor :: struct {
 	pipeline: Pipeline_Descriptor,
 	user_data: rawptr,
 	encode_batch_payload: #type proc(
 		destination: []u8,
 		batch_data: rawptr,
+		user_data: rawptr,
+	) -> bool,
+	encode_world_post_push: #type proc(
+		destination: []u8,
+		post_context: World_Post_Context,
 		user_data: rawptr,
 	) -> bool,
 }

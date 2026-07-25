@@ -129,6 +129,24 @@ batch_push_constants :: proc(batch: ^Batch) -> Push {
 	return push
 }
 
+world_post_push_constants :: proc(source, composite, target: vk.Extent2D) -> Push {
+	push := Push{}
+	if state.renderer_descriptor.encode_world_post_push != nil {
+		destination := mem.slice_ptr(cast([^]u8)&push, size_of(Push))
+		post_context := render2d.World_Post_Context {
+			source_extent = {source.width, source.height},
+			composite_extent = {composite.width, composite.height},
+			target_extent = {target.width, target.height},
+		}
+		_ = state.renderer_descriptor.encode_world_post_push(
+			destination,
+			post_context,
+			state.renderer_descriptor.user_data,
+		)
+	}
+	return push
+}
+
 resolve_hdr_scene :: proc(ctx: ^engine.Vk_Context, frame: engine.Vk_Frame, extent: vk.Extent2D) {
 	marker := gfx_profile_begin(.HDR_Resolve)
 	defer gfx_profile_end(.HDR_Resolve, marker)
@@ -317,14 +335,20 @@ EndDrawing :: proc() {
 	defer render2d.metrics_end_frame(&state.metrics)
 	render2d.metrics_record_batches(&state.metrics, u64(len(state.batches)))
 	ui.gui_end_frame(&state.gui); ctx := &state.ctx
-	// Fixed-resolution composition resolves the world before the native UI pass,
-	// so the legacy whole-frame HDR path must not wrap both layers together.
+	// World composition resolves before the native UI pass, so the legacy
+	// whole-frame HDR path must not wrap both layers together.
 	fixed_world_configured :=
 		state.world_pass != nil &&
 		state.world_render_width > 0 &&
 		state.world_render_height > 0
-	hdr_active := !fixed_world_configured && screen_effect != .None
-	if !fixed_world_configured {
+	world_resolve_configured := world_resolve_required(
+		state.world_pass != nil,
+		state.world_render_width,
+		state.world_render_height,
+		state.world_post_process_enabled,
+	)
+	hdr_active := !world_resolve_configured && screen_effect != .None
+	if !world_resolve_configured {
 		for batch in state.batches do if batch.effect.hdr_required {hdr_active = ensure_hdr_scene(); break}
 	}
 	if hdr_active && state.hdr_scene.image == vk.Image(0) do hdr_active = ensure_hdr_scene()
@@ -343,8 +367,8 @@ EndDrawing :: proc() {
 	upload_dynamic_textures(ctx, frame)
 	extent := ctx.swapchain_extent
 	world_extent := extent
-	fixed_world := fixed_world_configured
-	if fixed_world do world_extent = {state.world_render_width, state.world_render_height}
+	world_resolve := world_resolve_configured
+	if fixed_world_configured do world_extent = {state.world_render_width, state.world_render_height}
 	image := ctx.swapchain_images[frame.image_index]
 	engine.vk_cmd_image_barrier2(
 		ctx,
@@ -380,7 +404,7 @@ EndDrawing :: proc() {
 		)
 		state.depth_initialized = true
 	}
-	if fixed_world {
+	if world_resolve {
 		engine.vk_cmd_image_barrier2(
 			ctx,
 			frame.command_buffer,
@@ -408,7 +432,7 @@ EndDrawing :: proc() {
 	if hdr_active do engine.vk_cmd_image_barrier2(ctx, frame.command_buffer, state.hdr_scene.image, {.TOP_OF_PIPE}, {.COLOR_ATTACHMENT_OUTPUT}, {}, {.COLOR_ATTACHMENT_WRITE}, .UNDEFINED, .COLOR_ATTACHMENT_OPTIMAL)
 	color_attachment := vk.RenderingAttachmentInfo {
 		sType       = .RENDERING_ATTACHMENT_INFO,
-		imageView   = fixed_world ? state.world_scene.view : (hdr_active ? state.hdr_scene.view : ctx.swapchain_image_views[frame.image_index]),
+		imageView   = world_resolve ? state.world_scene.view : (hdr_active ? state.hdr_scene.view : ctx.swapchain_image_views[frame.image_index]),
 		imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
 		loadOp      = .CLEAR,
 		storeOp     = .STORE,
@@ -440,14 +464,14 @@ EndDrawing :: proc() {
 			ctx                = ctx,
 			frame              = frame,
 			color_view         = color_attachment.imageView,
-			color_format       = fixed_world ? ctx.swapchain_format : (hdr_active ? vk.Format.R16G16B16A16_SFLOAT : ctx.swapchain_format),
+			color_format       = world_resolve ? ctx.swapchain_format : (hdr_active ? vk.Format.R16G16B16A16_SFLOAT : ctx.swapchain_format),
 			depth_view         = state.depth.view,
 			framebuffer_extent = world_extent,
 			logical_extent     = {state.width, state.height},
 		}; state.world_pass(&world_context, state.world_pass_user_data)}
 	gfx_profile_end(.World_Pass, world_marker)
 	vk.CmdEndRendering(frame.command_buffer)
-	if fixed_world {
+	if world_resolve {
 		engine.vk_cmd_image_barrier2(
 			ctx,
 			frame.command_buffer,
@@ -503,7 +527,8 @@ EndDrawing :: proc() {
 			0,
 			nil,
 		)
-		post_push := Push{}
+		composite_extent := vk.Extent2D{u32(composite_width), u32(composite_height)}
+		post_push := world_post_push_constants(world_extent, composite_extent, extent)
 		vk.CmdPushConstants(
 			frame.command_buffer,
 			state.pipeline_layout,

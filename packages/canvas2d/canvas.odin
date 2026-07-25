@@ -265,6 +265,7 @@ State :: struct {
 	depth_initialized:                         bool,
 	world_scene:                               resources.Image,
 	world_render_width, world_render_height:   u32,
+	world_post_process_enabled:                bool,
 	world_scene_sample_ready:                  bool,
 	texture_count:                             int,
 	texture_width, texture_height:             int,
@@ -324,4 +325,12 @@ state: State
 SetWorldRenderSize :: proc(width, height: u32) {
 	state.world_render_width = width
 	state.world_render_height = height
+}
+
+// SetWorldPostProcessEnabled resolves the world through the consumer's post
+// shader before native-resolution UI is submitted. This is independent of
+// fixed-resolution world rendering and remains product-neutral: consumers
+// define the effect and encode its push constants through Renderer_Descriptor.
+SetWorldPostProcessEnabled :: proc(enabled: bool) {
+	state.world_post_process_enabled = enabled
 }

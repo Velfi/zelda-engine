@@ -72,6 +72,40 @@ renderer_descriptor_requires_consumer_shader_contract :: proc(t: ^testing.T) {
 	testing.expect(t, !descriptor_valid(descriptor))
 }
 
+Mock_World_Post_State :: struct {
+	called: bool,
+	ctx:    World_Post_Context,
+}
+
+mock_world_post_push :: proc(
+	destination: []u8,
+	post_context: World_Post_Context,
+	user_data: rawptr,
+) -> bool {
+	state := cast(^Mock_World_Post_State)user_data
+	state.called = true
+	state.ctx = post_context
+	return len(destination) == 112
+}
+
+@(test)
+world_post_callback_receives_all_extents :: proc(t: ^testing.T) {
+	state: Mock_World_Post_State
+	descriptor := Renderer_Descriptor {
+		user_data = &state,
+		encode_world_post_push = mock_world_post_push,
+	}
+	payload: [112]u8
+	ctx := World_Post_Context {
+		source_extent = {854, 480},
+		composite_extent = {1280, 720},
+		target_extent = {1440, 900},
+	}
+	testing.expect(t, descriptor.encode_world_post_push(payload[:], ctx, descriptor.user_data))
+	testing.expect(t, state.called)
+	testing.expect_value(t, state.ctx, ctx)
+}
+
 Mock_Backend_State :: struct {
 	created, resized, begun, submitted, texture_updated, screenshot, destroyed: bool,
 }
