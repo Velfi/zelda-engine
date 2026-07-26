@@ -131,7 +131,7 @@ glb_mat4_inverse_affine :: proc(m:Glb_Mat4)->(Glb_Mat4,bool) {
 	return r,true
 }
 glb_node_local_transform :: proc(node:^Glb_Node)->Glb_Mat4 {
-	for value in node.transform_matrix do if value!=0 do return transmute(Glb_Mat4)node.transform_matrix
+	for value in node.transform_matrix do if value!=0 do return node.transform_matrix
 	t:=node.translation;s:=node.scale;q:=node.rotation
 	if s[0]==0&&s[1]==0&&s[2]==0 do s={1,1,1}
 	if q[0]==0&&q[1]==0&&q[2]==0&&q[3]==0 do q[3]=1

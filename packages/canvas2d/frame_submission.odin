@@ -294,7 +294,7 @@ publish_screenshot_readback :: proc(
 	if !do_capture || !frame_ended do return
 	_ = vk.DeviceWaitIdle(ctx.device)
 	byte_count := int(extent.width * extent.height * 4)
-	pointer := transmute([^]u8)state.capture_buffer.mapped
+	pointer := cast([^]u8)state.capture_buffer.mapped
 	pixels := pointer[:byte_count]
 	if engine.screenshot_state_publish_from_gpu_rgba(
 		&state.capture_state,

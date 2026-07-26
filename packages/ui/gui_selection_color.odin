@@ -300,8 +300,8 @@ gui_area_slider_f32_at :: proc(ctx: ^Gui_Context, id: Gui_Id, area: Rect, value:
 	normalized := gui_vec2_to_normalized(value^, min_value, max_value)
 	handle := gui_normalized_to_rect_point(area, normalized)
 	if gui_drag_handle_region(ctx, id, area, handle, 10) {
-		normalized := gui_rect_point_to_normalized(area, ctx.input.mouse_pos)
-		value^ = gui_vec2_from_normalized(normalized, min_value, max_value)
+        mouse_normalized := gui_rect_point_to_normalized(area, ctx.input.mouse_pos)
+        value^ = gui_vec2_from_normalized(mouse_normalized, min_value, max_value)
 		changed = true
 	}
 	_ = gui_update_focus_edit(ctx, id, ctx.focused == id)
