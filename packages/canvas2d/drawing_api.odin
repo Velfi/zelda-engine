@@ -130,6 +130,7 @@ GetWorldMousePosition :: proc() -> (position: Vector2, inside: bool) {
 }
 GetMouseDelta :: proc() -> Vector2 {return state.mouse_delta}
 GetMouseWheelMove :: proc() -> f32 {return state.mouse_wheel}
+GetMouseWheelMoveV :: proc() -> Vector2 {return state.mouse_wheel_delta}
 GetMousePinchScale :: proc() -> f32 {return state.mouse_pinch_scale}
 IsMouseButtonPressed :: proc(button: MouseButton) -> bool {assert(button != .COUNT); return(
 		state.mouse_pressed[int(button)] \
@@ -284,6 +285,7 @@ input_begin_frame :: proc() {
 	state.mouse_released = state.platform_input.mouse_released
 	state.mouse_delta = state.platform_input.mouse_delta
 	state.mouse_wheel = state.platform_input.mouse_wheel
+	state.mouse_wheel_delta = state.platform_input.mouse_wheel_delta
 	state.mouse_pinch_scale = state.platform_input.mouse_pinch_scale
 	state.keys_pressed = state.platform_input.keys_pressed
 	state.gamepad_pressed = {}
@@ -298,6 +300,7 @@ translate_sdl_event :: proc(e: ^sdl.Event) {
 	state.mouse = p.mouse
 	state.mouse_delta = p.mouse_delta
 	state.mouse_wheel = p.mouse_wheel
+	state.mouse_wheel_delta = p.mouse_wheel_delta
 	state.mouse_pinch_scale = p.mouse_pinch_scale
 	state.mouse_down = p.mouse_down
 	state.mouse_pressed = p.mouse_pressed

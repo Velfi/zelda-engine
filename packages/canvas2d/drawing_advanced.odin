@@ -459,6 +459,11 @@ SetWorldPass :: proc(callback: World_Pass_Callback, user_data: rawptr = nil) {st
 		callback
 	state.world_pass_user_data = user_data}
 
+SetWorldPrePass :: proc(callback: World_Pass_Callback, user_data: rawptr = nil) {
+	state.world_pre_pass = callback
+	state.world_pre_pass_user_data = user_data
+}
+
 SetUIPass :: proc(callback: Ui_Pass_Callback, user_data: rawptr = nil) {state.ui_pass =
 		callback
 	state.ui_pass_user_data = user_data}

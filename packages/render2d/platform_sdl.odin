@@ -72,6 +72,7 @@ SDL_Input_State :: struct {
 	mouse:                       Vector2,
 	mouse_delta:                 Vector2,
 	mouse_wheel:                 f32,
+	mouse_wheel_delta:           Vector2,
 	mouse_pinch_scale:           f32,
 	mouse_down:                  [SDL_MOUSE_BUTTON_COUNT]bool,
 	mouse_pressed:               [SDL_MOUSE_BUTTON_COUNT]bool,
@@ -90,6 +91,7 @@ sdl_input_begin_frame :: proc(input: ^SDL_Input_State) {
 	input.mouse_released = {}
 	input.mouse_delta = {}
 	input.mouse_wheel = 0
+	input.mouse_wheel_delta = {}
 	input.mouse_pinch_scale = 1
 	input.keys_pressed = {}
 	input.gamepad_pressed = {}
@@ -117,6 +119,8 @@ sdl_process_event :: proc(input: ^SDL_Input_State, event: ^sdl.Event) {
 		input.mouse_delta.y += event.motion.yrel
 	case .MOUSE_WHEEL:
 		input.mouse_wheel += event.wheel.y
+		input.mouse_wheel_delta.x += event.wheel.x
+		input.mouse_wheel_delta.y += event.wheel.y
 	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
 		index := sdl_mouse_button_index(event.button.button)
 		if index >= 0 {

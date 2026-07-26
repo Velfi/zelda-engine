@@ -458,22 +458,30 @@ EndDrawing :: proc() {
 		colorAttachmentCount = 1,
 		pColorAttachments = &color_attachment,
 		pDepthAttachment = state.world_pass != nil ? &depth_attachment : nil,
-	}; vk.CmdBeginRendering(frame.command_buffer, &rendering)
+	}
 	sdl.GetWindowSize(
 		state.window,
 		&state.width,
 		&state.height,
-	); sdl.GetWindowSizeInPixels(state.window, &state.framebuffer_width, &state.framebuffer_height)
+	)
+	sdl.GetWindowSizeInPixels(state.window, &state.framebuffer_width, &state.framebuffer_height)
+	world_context := World_Pass_Context {
+		ctx                = ctx,
+		frame              = frame,
+		color_view         = color_attachment.imageView,
+		color_format       = world_resolve ? ctx.swapchain_format : (hdr_active ? vk.Format.R16G16B16A16_SFLOAT : ctx.swapchain_format),
+		depth_view         = state.depth.view,
+		framebuffer_extent = world_extent,
+		logical_extent     = {state.width, state.height},
+	}
+	if state.world_pre_pass != nil {
+		state.world_pre_pass(&world_context, state.world_pre_pass_user_data)
+	}
+	vk.CmdBeginRendering(frame.command_buffer, &rendering)
 	world_marker := gfx_profile_begin(.World_Pass)
-	if state.world_pass != nil {world_context := World_Pass_Context {
-			ctx                = ctx,
-			frame              = frame,
-			color_view         = color_attachment.imageView,
-			color_format       = world_resolve ? ctx.swapchain_format : (hdr_active ? vk.Format.R16G16B16A16_SFLOAT : ctx.swapchain_format),
-			depth_view         = state.depth.view,
-			framebuffer_extent = world_extent,
-			logical_extent     = {state.width, state.height},
-		}; state.world_pass(&world_context, state.world_pass_user_data)}
+	if state.world_pass != nil {
+		state.world_pass(&world_context, state.world_pass_user_data)
+	}
 	gfx_profile_end(.World_Pass, world_marker)
 	vk.CmdEndRendering(frame.command_buffer)
 	if world_resolve {
