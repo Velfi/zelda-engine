@@ -23,6 +23,7 @@ Gpu_Profile_Pass :: enum u32 {
 Gpu_Profile_Sample :: struct {
 	supported: bool,
 	enabled: bool,
+	valid: bool,
 	frame_ms: f64,
 	simulation_step_ms: f64,
 	simulation_present_ms: f64,
@@ -52,13 +53,28 @@ Gpu_Profiler :: struct {
 
 gpu_profiler_init :: proc(ctx: ^Vk_Context) -> bool {
 	ctx.gpu_profiler = {}
-	ctx.gpu_profiler.supported = ctx.caps.supports_timestamp_queries && ctx.caps.timestamp_period > 0 && vk.CreateQueryPool != nil && vk.GetQueryPoolResults != nil && vk.CmdWriteTimestamp != nil && vk.CmdResetQueryPool != nil
+	ctx.gpu_profiler.supported = ctx.caps.supports_timestamp_queries && ctx.caps.timestamp_period > 0 && vk.CreateQueryPool != nil && vk.GetQueryPoolResults != nil && vk.CmdResetQueryPool != nil && vk.CmdWriteTimestamp2 != nil
 	ctx.gpu_profiler.last_sample.supported = ctx.gpu_profiler.supported
 	if !ctx.gpu_profiler.supported {
+		log_warn(
+			"gpu_profiler_init: timestamp queries unavailable caps=",
+			ctx.caps.supports_timestamp_queries,
+			" period=",
+			ctx.caps.timestamp_period,
+			" create=",
+			vk.CreateQueryPool != nil,
+			" results=",
+			vk.GetQueryPoolResults != nil,
+			" reset=",
+			vk.CmdResetQueryPool != nil,
+			" write2=",
+			vk.CmdWriteTimestamp2 != nil,
+		)
 		return true
 	}
 
 	if !gpu_profiler_env_enabled() {
+		log_info("gpu_profiler_init: disabled; set ZELDA_ENGINE_GPU_PROFILER=1")
 		ctx.gpu_profiler.supported = false
 		ctx.gpu_profiler.enabled = false
 		ctx.gpu_profiler.last_sample.supported = false
@@ -89,7 +105,7 @@ gpu_profiler_init :: proc(ctx: ^Vk_Context) -> bool {
 }
 
 gpu_profiler_env_enabled :: proc() -> bool {
-	buf: [16]u8
+	buf: [32]u8
 	value := os.get_env_buf(buf[:], "ZELDA_ENGINE_GPU_PROFILER")
 	switch value {
 	case "1", "true", "TRUE", "True", "on", "ON", "On", "yes", "YES", "Yes":
@@ -126,7 +142,12 @@ gpu_profiler_collect_frame :: proc(ctx: ^Vk_Context, frame_slot: u32) {
 			values: [2]u64
 			first_query := gpu_profiler_query_index(Gpu_Profile_Pass(pass_index), occurrence, true)
 			result := vk.GetQueryPoolResults(ctx.device, frame.query_pool, first_query, 2, size_of(values), raw_data(values[:]), vk.DeviceSize(size_of(u64)), {._64})
-			if result != .SUCCESS do return
+			if result != .SUCCESS {
+				sample.valid = false
+				ctx.gpu_profiler.last_sample = sample
+				frame.has_pending_results = false
+				return
+			}
 			pass_values[pass_index] += gpu_profiler_delta_ms(ctx, values[0], values[1])
 		}
 	}
@@ -140,6 +161,7 @@ gpu_profiler_collect_frame :: proc(ctx: ^Vk_Context, frame_slot: u32) {
 	sample.pellets_density_ms = pass_values[int(Gpu_Profile_Pass.Pellets_Density)]
 	sample.pellets_particle_draw_ms = pass_values[int(Gpu_Profile_Pass.Pellets_Particle_Draw)]
 	sample.pellets_grid_scatter_ms = pass_values[int(Gpu_Profile_Pass.Pellets_Grid_Scatter)]
+	sample.valid = true
 	ctx.gpu_profiler.last_sample = sample
 	frame.has_pending_results = false
 }

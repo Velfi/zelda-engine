@@ -62,7 +62,7 @@ GetScreenHeight :: proc() -> i32 {if width, height, ok := render2d.sdl_window_si
 GetTime :: proc() -> f64 {return time.duration_seconds(time.tick_since(state.start))}
 GetGpuFrameTimeMs :: proc() -> (ms: f64, available: bool) {
 	sample := engine.gpu_profiler_last_sample(&state.ctx)
-	return sample.frame_ms, sample.supported && sample.enabled && sample.frame_ms > 0
+	return sample.frame_ms, sample.supported && sample.enabled && sample.valid
 }
 
 DrawEffectQuadPoints :: proc(
