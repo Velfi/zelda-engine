@@ -27,7 +27,9 @@ InitWindow :: proc(width, height: i32, title: cstring) {
 	state.running = true
 	state.start = time.tick_now()
 	when ODIN_OS == .Darwin {
-		if _, err := os.stat("/opt/homebrew/lib/libvulkan.1.dylib", context.temp_allocator); err == nil do _ = os.set_env("SDL_VULKAN_LIBRARY", "/opt/homebrew/lib/libvulkan.1.dylib")
+		if os.get_env("SDL_VULKAN_LIBRARY", context.temp_allocator) == "" {
+			if _, err := os.stat("/opt/homebrew/lib/libvulkan.1.dylib", context.temp_allocator); err == nil do _ = os.set_env("SDL_VULKAN_LIBRARY", "/opt/homebrew/lib/libvulkan.1.dylib")
+		}
 		// A non-focusable capture window must not activate the application either.
 		// SDL's window flag alone prevents window focus, but macOS can still bring
 		// the application to the foreground while initializing its video backend.
