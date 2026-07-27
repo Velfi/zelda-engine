@@ -214,6 +214,36 @@ sdl_mouse_keyboard_pinch_and_frame_edges_translate_deterministically :: proc(t: 
 }
 
 @(test)
+sdl_text_input_and_composition_are_copied_for_the_frame :: proc(t: ^testing.T) {
+	characterization_begin()
+	defer characterization_end()
+
+	input_begin_frame()
+	committed := [?]u8{'c', 'a', 'f', 0xc3, 0xa9, 0}
+	text_event: sdl.Event
+	text_event.type = .TEXT_INPUT
+	text_event.text.text = cast(cstring)&committed[0]
+	translate_sdl_event(&text_event)
+	testing.expect_value(t, GetTextInput(), "café")
+
+	composing := [?]u8{0xe7, 0x8c, 0xab, 0}
+	edit_event: sdl.Event
+	edit_event.type = .TEXT_EDITING
+	edit_event.edit.text = cast(cstring)&composing[0]
+	edit_event.edit.start = 1
+	edit_event.edit.length = 2
+	translate_sdl_event(&edit_event)
+	composition := GetTextInputComposition()
+	testing.expect_value(t, composition.text, "猫")
+	testing.expect_value(t, composition.start, 1)
+	testing.expect_value(t, composition.selection_length, 2)
+
+	input_begin_frame()
+	testing.expect_value(t, GetTextInput(), "")
+	testing.expect_value(t, GetTextInputComposition().text, "猫")
+}
+
+@(test)
 sdl_gamepad_buttons_and_ui_focus_navigation_are_characterized :: proc(t: ^testing.T) {
 	characterization_begin()
 	defer characterization_end()

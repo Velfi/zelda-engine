@@ -291,6 +291,7 @@ GetGamepadAxis :: proc(axis: Gamepad_Axis) -> f32 {
 FocusButton :: proc(id: int) {state.gui.focused = ui.Gui_Id(id + 1)}
 
 input_begin_frame :: proc() {
+	state.text_input_length = 0
 	render2d.sdl_input_begin_frame(&state.platform_input)
 	state.mouse_pressed = state.platform_input.mouse_pressed
 	state.mouse_released = state.platform_input.mouse_released
@@ -303,6 +304,28 @@ input_begin_frame :: proc() {
 }
 
 translate_sdl_event :: proc(e: ^sdl.Event) {
+	#partial switch e.type {
+	case .TEXT_INPUT:
+		text := string(e.text.text)
+		remaining := len(state.text_input) - state.text_input_length
+		count := min(len(text), remaining)
+		if count > 0 {
+			copy(state.text_input[state.text_input_length:], transmute([]u8)text[:count])
+			state.text_input_length += count
+		}
+	case .TEXT_EDITING:
+		state.text_composition = {}
+		text := string(e.edit.text)
+		state.text_composition_length = min(len(text), len(state.text_composition))
+		if state.text_composition_length > 0 {
+			copy(
+				state.text_composition[:state.text_composition_length],
+				transmute([]u8)text[:state.text_composition_length],
+			)
+		}
+		state.text_composition_start = int(e.edit.start)
+		state.text_composition_selection_length = int(e.edit.length)
+	}
 	// Seed the adapter from compatibility state while callers migrate.
 	state.platform_input.gamepad = state.gamepad
 	state.platform_input.gamepad_id = state.gamepad_id
@@ -328,6 +351,43 @@ translate_sdl_event :: proc(e: ^sdl.Event) {
 	}
 	if p.quit_requested do state.running = false
 	if p.resize_requested do state.ctx.needs_swapchain_recreate = true
+}
+
+Text_Input_Composition :: struct {
+	text:             string,
+	start:            int,
+	selection_length: int,
+}
+
+StartTextInput :: proc() -> bool {
+	if state == nil || state.window == nil do return false
+	return sdl.StartTextInput(state.window)
+}
+
+StopTextInput :: proc() -> bool {
+	if state == nil || state.window == nil do return false
+	state.text_composition_length = 0
+	return sdl.StopTextInput(state.window)
+}
+
+SetTextInputArea :: proc(bounds: Rectangle, cursor: int) -> bool {
+	if state == nil || state.window == nil do return false
+	area := sdl.Rect{i32(bounds.x), i32(bounds.y), i32(bounds.width), i32(bounds.height)}
+	return sdl.SetTextInputArea(state.window, &area, i32(cursor))
+}
+
+GetTextInput :: proc() -> string {
+	if state == nil do return ""
+	return string(state.text_input[:state.text_input_length])
+}
+
+GetTextInputComposition :: proc() -> Text_Input_Composition {
+	if state == nil do return {}
+	return {
+		text             = string(state.text_composition[:state.text_composition_length]),
+		start            = state.text_composition_start,
+		selection_length = state.text_composition_selection_length,
+	}
 }
 
 WindowShouldClose :: proc() -> bool {

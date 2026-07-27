@@ -250,11 +250,19 @@ FONT_ATLAS_H :: FONT_CELL_H * FONT_ROWS
 ICON_COLUMNS :: 6
 ICON_ROWS :: 6
 MAX_TEXTURES :: 16
+TEXT_INPUT_CAPACITY :: 1024
+TEXT_COMPOSITION_CAPACITY :: 1024
 
 State :: struct {
 	renderer_descriptor:                       render2d.Renderer_Descriptor,
 	config_flags:                              ConfigFlags,
 	window:                                    ^sdl.Window,
+	text_input:                                [TEXT_INPUT_CAPACITY]u8,
+	text_input_length:                         int,
+	text_composition:                          [TEXT_COMPOSITION_CAPACITY]u8,
+	text_composition_length:                   int,
+	text_composition_start:                    int,
+	text_composition_selection_length:         int,
 	platform_window:                           render2d.SDL_Window_Runtime,
 	ctx:                                       engine.Vk_Context,
 	textures:                                  [MAX_TEXTURES]resources.Image,
