@@ -5,6 +5,17 @@ JOLT_BUILD := third_party/jolt/build
 
 TEXTSHAPE_CFLAGS := $(shell pkg-config --cflags harfbuzz freetype2 2>/dev/null)
 TEXTSHAPE_LIBS := $(shell pkg-config --libs harfbuzz freetype2 2>/dev/null)
+UNICODE_ROOT := third_party/unicode
+SHEENBIDI_ROOT := $(UNICODE_ROOT)/sheenbidi
+LIBGRAPHEME_ROOT := $(UNICODE_ROOT)/libgrapheme
+UNICODE_CFLAGS := -I$(SHEENBIDI_ROOT)/Headers -I$(SHEENBIDI_ROOT)/Source -I$(LIBGRAPHEME_ROOT)
+UNICODE_OBJECTS := \
+	$(SHEENBIDI_ROOT)/SheenBidi.o \
+	$(LIBGRAPHEME_ROOT)/src/character.o \
+	$(LIBGRAPHEME_ROOT)/src/line.o \
+	$(LIBGRAPHEME_ROOT)/src/utf8.o \
+	$(LIBGRAPHEME_ROOT)/src/util.o \
+	$(LIBGRAPHEME_ROOT)/src/word.o
 
 test: textshape-build canvas-signposts-build
 	mkdir -p build/tests
@@ -21,10 +32,17 @@ test: textshape-build canvas-signposts-build
 	odin test packages/ui -collection:zelda_engine=$(CURDIR)/packages -extra-linker-flags:"$(TEXTSHAPE_LIBS)"
 
 third_party/textshape/textshape.o: third_party/textshape/textshape.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(TEXTSHAPE_CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(TEXTSHAPE_CFLAGS) $(UNICODE_CFLAGS) -c $< -o $@
 
-third_party/textshape/libtextshape.a: third_party/textshape/textshape.o
+$(SHEENBIDI_ROOT)/SheenBidi.o: $(SHEENBIDI_ROOT)/Source/SheenBidi.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(UNICODE_CFLAGS) -DSB_CONFIG_UNITY -c $< -o $@
+
+$(LIBGRAPHEME_ROOT)/src/%.o: $(LIBGRAPHEME_ROOT)/src/%.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c99 -I$(LIBGRAPHEME_ROOT) -c $< -o $@
+
+third_party/textshape/libtextshape.a: third_party/textshape/textshape.o $(UNICODE_OBJECTS)
 	$(AR) rcs $@ $<
+	$(AR) rcs $@ $(UNICODE_OBJECTS)
 
 textshape-build: third_party/textshape/libtextshape.a
 
@@ -50,6 +68,7 @@ physics-test: physics-build
 clean:
 	$(RM) build/gfx_signposts.o build/libgfx_signposts.a
 	$(RM) third_party/textshape/textshape.o third_party/textshape/libtextshape.a
+	$(RM) $(UNICODE_OBJECTS)
 	$(RM) third_party/jolt/libJolt.a third_party/jolt/libzelda_physics.a
 	$(RM) third_party/jolt/libzelda_physics.dylib third_party/jolt/libzelda_physics.so third_party/jolt/zelda_physics.lib
 	$(RM) -r third_party/jolt/build

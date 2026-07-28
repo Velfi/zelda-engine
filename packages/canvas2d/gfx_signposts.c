@@ -25,6 +25,8 @@ uint64_t zelda_canvas_gfx_signpost_begin(unsigned marker) {
     case 8: os_signpost_interval_begin(log, id, "UI Buffer Upload"); break;
     case 9: os_signpost_interval_begin(log, id, "UI Command Setup"); break;
     case 10: os_signpost_interval_begin(log, id, "UI Ordinary Draw"); break;
+    case 11: os_signpost_interval_begin(log, id, "Frame Setup"); break;
+    case 12: os_signpost_interval_begin(log, id, "World Composite"); break;
     default: os_signpost_interval_begin(log, id, "Unknown GFX Work"); break;
     }
     return id;
@@ -44,6 +46,8 @@ void zelda_canvas_gfx_signpost_end(unsigned marker, uint64_t id) {
     case 8: os_signpost_interval_end(log, id, "UI Buffer Upload"); break;
     case 9: os_signpost_interval_end(log, id, "UI Command Setup"); break;
     case 10: os_signpost_interval_end(log, id, "UI Ordinary Draw"); break;
+    case 11: os_signpost_interval_end(log, id, "Frame Setup"); break;
+    case 12: os_signpost_interval_end(log, id, "World Composite"); break;
     default: os_signpost_interval_end(log, id, "Unknown GFX Work"); break;
     }
 }
