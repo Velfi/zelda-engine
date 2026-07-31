@@ -98,7 +98,7 @@ GetGpuFrameTimeMs :: proc() -> (ms: f64, available: bool) {
     return sample.frame_ms, sample.supported && sample.enabled && sample.valid
 }
 
-DrawEffectQuadPoints :: proc(a, b, c, d: Vector2, color: Color, effect: Effect_Payload, texture := Texture{}) {
+draw_effect_quad_points :: proc(a, b, c, d: Vector2, color: Color, effect: Effect_Payload, texture := Texture{}) {
     if effect.size <= 0 ||
        effect.size > MAX_EFFECT_PAYLOAD_SIZE ||
        len(state.vertices) + 4 > MAX_VERTICES ||
@@ -116,9 +116,9 @@ DrawEffectQuadPoints :: proc(a, b, c, d: Vector2, color: Color, effect: Effect_P
     append_batch(first, 6, texture_id, HATCH_DISABLED, effect)
 }
 
-DrawEffectQuad :: proc(bounds: Rectangle, color: Color, effect: Effect_Payload, texture := Texture{}) {
+draw_effect_quad :: proc(bounds: Rectangle, color: Color, effect: Effect_Payload, texture := Texture{}) {
     if bounds.width <= 0 || bounds.height <= 0 do return
-    DrawEffectQuadPoints(
+    draw_effect_quad_points(
         {bounds.x, bounds.y},
         {bounds.x + bounds.width, bounds.y},
         {bounds.x + bounds.width, bounds.y + bounds.height},

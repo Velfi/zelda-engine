@@ -283,8 +283,8 @@ opaque_effect_quads_preserve_consumer_payload_and_hdr_metadata :: proc(t: ^testi
     characterization_begin()
     defer characterization_end()
     payload_value := [4]u32{11, 22, 33, 44}
-    effect := EffectPayload(77, &payload_value, true)
-    DrawEffectQuad({10, 20, 30, 40}, {255, 255, 255, 255}, effect)
+    effect := effect_payload(77, &payload_value, true)
+    draw_effect_quad({10, 20, 30, 40}, {255, 255, 255, 255}, effect)
     testing.expect_value(t, len(state.vertices), 4)
     testing.expect_value(t, len(state.indices), 6)
     testing.expect_value(t, len(state.batches), 1)

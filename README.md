@@ -99,15 +99,14 @@ translation and frame metrics (draw calls, batches, upload bytes, and screenshot
 latency) are reusable mechanisms in this package; a Vulkan adapter can report
 them even when GPU timestamps are unavailable.
 
-`canvas2d` is that reusable Vulkan adapter plus an immediate drawing vocabulary.
-Applications may keep a familiar short alias while importing it from the engine:
+`canvas2d` is that reusable Vulkan adapter plus an immediate drawing vocabulary:
 
 ```odin
-import rl "zelda_engine:canvas2d"
+import canvas2d "zelda_engine:canvas2d"
 ```
 
-Consumer-specific effects use `EffectPayload` with `DrawEffectQuad` or
-`DrawEffectQuadPoints`. The canvas batches the opaque bytes and forwards the
+Consumer-specific effects use `effect_payload` with `draw_effect_quad` or
+`draw_effect_quad_points`. The canvas batches the opaque bytes and forwards the
 batch to the renderer descriptor's payload encoder; effect names, configuration
 types, shader sentinels, and HDR policy remain in the consuming application.
 

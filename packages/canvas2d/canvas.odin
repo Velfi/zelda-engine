@@ -222,7 +222,7 @@ Effect_Payload :: struct {
     hdr_required: bool,
 }
 
-EffectPayload :: proc(kind: u32, value: ^$T, hdr_required := false) -> Effect_Payload {
+effect_payload :: proc(kind: u32, value: ^$T, hdr_required := false) -> Effect_Payload {
     result := Effect_Payload {
         kind         = kind,
         size         = size_of(T),
