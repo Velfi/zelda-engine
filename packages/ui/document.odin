@@ -3,6 +3,7 @@ package ui
 import "core:encoding/json"
 import "core:mem"
 import "core:os"
+import back "zelda_engine:back"
 
 UI_DOCUMENT_SCHEMA_VERSION :: 1
 UI_DOCUMENT_ID_CAPACITY :: 64
@@ -700,7 +701,8 @@ ui_document_parse :: proc(data: []byte, out: ^Ui_Document) -> Ui_Document_Valida
         return {.Parse_Failed, -1, "output document is nil"}
     }
     candidate: Ui_Document
-    mem.dynamic_arena_init(&candidate.arena)
+    backing_allocator := back.tracking_allocator_backing_allocator(context.allocator)
+    mem.dynamic_arena_init(&candidate.arena, block_allocator = backing_allocator, array_allocator = backing_allocator)
     allocator := mem.dynamic_arena_allocator(&candidate.arena)
     if json.unmarshal(data, &candidate.source, allocator = allocator) != nil {
         ui_document_destroy(&candidate)

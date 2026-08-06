@@ -6,17 +6,6 @@ import vk "vendor:vulkan"
 vk_begin_frame :: proc(ctx: ^Vk_Context) -> (Vk_Frame, bool) {
     frame: Vk_Frame
     if !ctx.initialized || !ctx.frame_resources_ready || ctx.needs_swapchain_recreate {
-        if ctx.debug_acquire_log_count < VK_DEBUG_FRAME_LOG_LIMIT {
-            log_debug(
-                "vk_begin_frame: skipped initialized=",
-                ctx.initialized,
-                " frame_resources_ready=",
-                ctx.frame_resources_ready,
-                " needs_swapchain_recreate=",
-                ctx.needs_swapchain_recreate,
-            )
-            ctx.debug_acquire_log_count += 1
-        }
         return frame, false
     }
 
@@ -40,37 +29,22 @@ vk_begin_frame :: proc(ctx: ^Vk_Context) -> (Vk_Frame, bool) {
         &image_index,
     )
     ctx.last_cpu_timings.acquire_ms = vk_elapsed_ms(acquire_start)
-    if ctx.debug_acquire_log_count < VK_DEBUG_FRAME_LOG_LIMIT {
-        log_debug(
-            "vk_begin_frame: frame_slot=",
-            frame_index,
-            " acquire_result=",
-            acquire_result,
-            " image_index=",
-            image_index,
-            " wait_ms=",
-            ctx.last_cpu_timings.wait_fence_ms,
-            " acquire_ms=",
-            ctx.last_cpu_timings.acquire_ms,
-        )
-        ctx.debug_acquire_log_count += 1
-    }
     if acquire_result == .ERROR_OUT_OF_DATE_KHR {
-        log_warn("vk_begin_frame: acquire out of date")
+        log_warn("swapchain image acquisition out of date")
         ctx.needs_swapchain_recreate = true
         return frame, false
     }
     if acquire_result != .SUCCESS && acquire_result != .SUBOPTIMAL_KHR {
-        log_error("vk_begin_frame: acquire failed result=", acquire_result)
+        log_error("swapchain image acquisition failed result=", acquire_result)
         if acquire_result == .ERROR_DEVICE_LOST do vk_record_device_loss(ctx, "acquiring the next swapchain image")
         return frame, false
     }
     if acquire_result == .SUBOPTIMAL_KHR {
-        log_warn("vk_begin_frame: acquire suboptimal")
+        log_warn("swapchain image acquisition suboptimal")
         ctx.needs_swapchain_recreate = true
     }
     if image_index >= ctx.swapchain_image_count || ctx.swapchain_render_finished[image_index] == vk.Semaphore(0) {
-        log_error("vk_begin_frame: acquired invalid swapchain image index=", image_index)
+        log_error("acquired invalid swapchain image index=", image_index)
         return frame, false
     }
     state.render_finished = ctx.swapchain_render_finished[image_index]
@@ -83,7 +57,7 @@ vk_begin_frame :: proc(ctx: ^Vk_Context) -> (Vk_Frame, bool) {
         flags = {.ONE_TIME_SUBMIT},
     }
     if vk.BeginCommandBuffer(state.command_buffer, &begin_info) != .SUCCESS {
-        log_error("vk_begin_frame: BeginCommandBuffer failed")
+        log_error("command buffer begin failed")
         return frame, false
     }
     ctx.last_cpu_timings.command_begin_ms = vk_elapsed_ms(command_begin_start)
@@ -104,7 +78,7 @@ vk_end_frame :: proc(ctx: ^Vk_Context, frame: Vk_Frame) -> bool {
     end_result := vk.EndCommandBuffer(frame.command_buffer)
     if end_result != .SUCCESS {
         log_error(
-            "vk_end_frame: EndCommandBuffer failed result=",
+            "command buffer end failed result=",
             end_result,
             " image_index=",
             frame.image_index,
@@ -146,22 +120,8 @@ vk_end_frame :: proc(ctx: ^Vk_Context, frame: Vk_Frame) -> bool {
     _ = vk.ResetFences(ctx.device, 1, &frame.state.in_flight)
     submit_result := vk.QueueSubmit2(ctx.graphics_queue, 1, &submit, frame.state.in_flight)
     ctx.last_cpu_timings.queue_submit_ms = vk_elapsed_ms(submit_start)
-    if ctx.debug_present_log_count < VK_DEBUG_FRAME_LOG_LIMIT {
-        log_debug(
-            "vk_end_frame: frame_slot=",
-            frame.frame_index,
-            " image_index=",
-            frame.image_index,
-            " submit_result=",
-            submit_result,
-            " end_cmd_ms=",
-            ctx.last_cpu_timings.end_command_ms,
-            " submit_ms=",
-            ctx.last_cpu_timings.queue_submit_ms,
-        )
-    }
     if submit_result != .SUCCESS {
-        log_error("vk_end_frame: QueueSubmit failed result=", submit_result)
+        log_error("queue submission failed result=", submit_result)
         if submit_result == .ERROR_DEVICE_LOST do vk_record_device_loss(ctx, "submitting GPU work")
         return false
     }
@@ -179,27 +139,11 @@ vk_end_frame :: proc(ctx: ^Vk_Context, frame: Vk_Frame) -> bool {
     present_result := vk.QueuePresentKHR(ctx.present_queue, &present)
     ctx.last_cpu_timings.queue_present_ms = vk_elapsed_ms(present_start)
     ctx.last_command_shape = ctx.command_shape
-    queue_idle_result := vk.Result.SUCCESS
-    if ctx.debug_present_log_count < VK_DEBUG_FRAME_LOG_LIMIT {
-        log_debug(
-            "vk_end_frame: frame_slot=",
-            frame.frame_index,
-            " image_index=",
-            frame.image_index,
-            " present_result=",
-            present_result,
-            " queue_idle_result=",
-            queue_idle_result,
-            " present_ms=",
-            ctx.last_cpu_timings.queue_present_ms,
-        )
-        ctx.debug_present_log_count += 1
-    }
     if present_result == .ERROR_OUT_OF_DATE_KHR || present_result == .SUBOPTIMAL_KHR {
-        log_warn("vk_end_frame: present requires swapchain recreate result=", present_result)
+        log_warn("presentation requires swapchain recreation result=", present_result)
         ctx.needs_swapchain_recreate = true
     } else if present_result != .SUCCESS {
-        log_error("vk_end_frame: QueuePresent failed result=", present_result)
+        log_error("presentation failed result=", present_result)
         if present_result == .ERROR_DEVICE_LOST do vk_record_device_loss(ctx, "presenting the rendered frame")
         return false
     }
@@ -310,12 +254,23 @@ vk_push_unique_queue :: proc(values: ^[3]u32, count: ^u32, value: u32) {
 vk_fill_device_caps :: proc(ctx: ^Vk_Context, configured_ceiling_fraction: f32) {
     props: vk.PhysicalDeviceProperties
     vk.GetPhysicalDeviceProperties(ctx.physical_device, &props)
+    depth_resolve := vk.PhysicalDeviceDepthStencilResolveProperties {
+        sType = .PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES,
+    }
+    props2 := vk.PhysicalDeviceProperties2 {
+        sType = .PHYSICAL_DEVICE_PROPERTIES_2,
+        pNext = &depth_resolve,
+    }
+    vk.GetPhysicalDeviceProperties2(ctx.physical_device, &props2)
     ctx.caps.api_version = props.apiVersion
     write_fixed_string(ctx.caps.adapter_name[:], fixed_string(props.deviceName[:]))
     write_fixed_string(ctx.caps.adapter_type[:], vk_device_type_name(props.deviceType))
     ctx.caps.supports_timestamp_queries =
         props.limits.timestampComputeAndGraphics == true && props.limits.timestampPeriod > 0
     ctx.caps.timestamp_period = props.limits.timestampPeriod
+    ctx.caps.framebuffer_sample_counts =
+        props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts
+    ctx.caps.supports_min_depth_resolve = .MIN in depth_resolve.supportedDepthResolveModes
     ctx.caps.supports_memory_budget_ext = vk_device_extension_available(
         ctx.physical_device,
         vk.EXT_MEMORY_BUDGET_EXTENSION_NAME,

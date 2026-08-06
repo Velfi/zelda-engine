@@ -1,0 +1,38 @@
+From 3b70f7f8172e3f505b08952931f31d5be2a1acf7 Mon Sep 17 00:00:00 2001
+From: Isabella Basso <isabellabdoamaral@gmail.com>
+Date: Wed, 18 Mar 2026 12:26:06 -0300
+Subject: [PATCH] fix(metal): autorelease FramebufferDescriptor in non-ARC
+ NewFrame path
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Without autorelease, [[alloc] init] starts at retain count 1 and the
+strong-property setter retains it again (+1), so when the property is
+overwritten next frame the old descriptor is only released to rc=1
+instead of 0 — leaking one 64-byte object per NewFrame() call.
+
+Signed-off-by: Isabella Basso <isabellabdoamaral@gmail.com>
+---
+ backends/imgui_impl_metal.mm | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/backends/imgui_impl_metal.mm b/backends/imgui_impl_metal.mm
+index 1cd2308d1..99a9c2f6b 100644
+--- a/backends/imgui_impl_metal.mm
++++ b/backends/imgui_impl_metal.mm
+@@ -162,7 +162,10 @@ void ImGui_ImplMetal_NewFrame(MTLRenderPassDescriptor* renderPassDescriptor)
+ #ifdef IMGUI_IMPL_METAL_CPP
+     bd->SharedMetalContext.framebufferDescriptor = [[[FramebufferDescriptor alloc] initWithRenderPassDescriptor:renderPassDescriptor]autorelease];
+ #else
+-    bd->SharedMetalContext.framebufferDescriptor = [[FramebufferDescriptor alloc] initWithRenderPassDescriptor:renderPassDescriptor];
++    // Bug fix: non-ARC path was missing autorelease. The strong property retains the new
++    // value (+1), but [[alloc] init] already starts at +1 — so the previous descriptor
++    // is only released to rc=1 (not 0) each frame, leaking one object per NewFrame() call.
++    bd->SharedMetalContext.framebufferDescriptor = [[[FramebufferDescriptor alloc] initWithRenderPassDescriptor:renderPassDescriptor] autorelease];
+ #endif
+     if (bd->SharedMetalContext.depthStencilState == nil)
+         ImGui_ImplMetal_CreateDeviceObjects(bd->SharedMetalContext.device);
+-- 
+2.50.1 (Apple Git-155)
+

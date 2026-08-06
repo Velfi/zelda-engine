@@ -1,17 +1,20 @@
 package engine
 
+import spy "../spy"
 import "core:fmt"
 import vk "vendor:vulkan"
 
 vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
     caps: vk.SurfaceCapabilitiesKHR
-    if vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.physical_device, ctx.surface, &caps) != .SUCCESS {
+    capabilities_result := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.physical_device, ctx.surface, &caps)
+    if capabilities_result != .SUCCESS {
+        spy.error("surface capabilities query failed result=", capabilities_result)
         return false
     }
 
     format, format_found := vk_choose_surface_format(ctx.physical_device, ctx.surface)
     if !format_found {
-        log_error("vk_create_swapchain: an 8-bit sRGB nonlinear surface format is required")
+        spy.error("an 8-bit sRGB nonlinear surface format is required")
         return false
     }
     present_mode := vk_choose_present_mode(ctx.physical_device, ctx.surface, ctx.vsync_enabled)
@@ -25,53 +28,6 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
     if image_count > MAX_SWAPCHAIN_IMAGES {
         image_count = MAX_SWAPCHAIN_IMAGES
     }
-    log_debug(
-        "vk_create_swapchain: surface current_extent=",
-        caps.currentExtent.width,
-        "x",
-        caps.currentExtent.height,
-        " min_extent=",
-        caps.minImageExtent.width,
-        "x",
-        caps.minImageExtent.height,
-        " max_extent=",
-        caps.maxImageExtent.width,
-        "x",
-        caps.maxImageExtent.height,
-    )
-    log_debug(
-        "vk_create_swapchain: requested=",
-        width,
-        "x",
-        height,
-        " chosen_extent=",
-        extent.width,
-        "x",
-        extent.height,
-        " min_images=",
-        caps.minImageCount,
-        " max_images=",
-        caps.maxImageCount,
-        " requested_images=",
-        image_count,
-    )
-    log_debug(
-        "vk_create_swapchain: format=",
-        format.format,
-        " color_space=",
-        format.colorSpace,
-        " present_mode=",
-        present_mode,
-        " usage=",
-        usage,
-        " supported_usage=",
-        caps.supportedUsageFlags,
-        " capture_enabled=",
-        ctx.capture_enabled,
-        " vsync_enabled=",
-        ctx.vsync_enabled,
-    )
-
     queue_indices := [?]u32{u32(ctx.caps.queue_families.graphics), u32(ctx.caps.queue_families.present)}
     sharing_mode := vk.SharingMode.EXCLUSIVE
     queue_index_count: u32
@@ -100,16 +56,16 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
         clipped               = true,
     }
     create_result := vk.CreateSwapchainKHR(ctx.device, &create_info, nil, &ctx.swapchain)
-    log_debug("vk_create_swapchain: CreateSwapchainKHR result=", create_result)
     if create_result != .SUCCESS {
+        spy.error("swapchain creation failed result=", create_result)
         return false
     }
     vk_set_debug_name(ctx, .SWAPCHAIN_KHR, auto_cast ctx.swapchain, "Vulkan swapchain")
 
     actual_count: u32
     get_count_result := vk.GetSwapchainImagesKHR(ctx.device, ctx.swapchain, &actual_count, nil)
-    log_debug("vk_create_swapchain: GetSwapchainImages count result=", get_count_result, " count=", actual_count)
     if get_count_result != .SUCCESS {
+        spy.error("swapchain image count query failed result=", get_count_result)
         return false
     }
     if actual_count > MAX_SWAPCHAIN_IMAGES {
@@ -121,13 +77,8 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
         &actual_count,
         raw_data(ctx.swapchain_images[:]),
     )
-    log_debug(
-        "vk_create_swapchain: GetSwapchainImages data result=",
-        get_images_result,
-        " stored_count=",
-        actual_count,
-    )
     if get_images_result != .SUCCESS {
+        spy.error("swapchain image retrieval failed result=", get_images_result)
         return false
     }
     for i in 0 ..< actual_count {
@@ -160,8 +111,8 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
             },
         }
         view_result := vk.CreateImageView(ctx.device, &view_info, nil, &ctx.swapchain_image_views[i])
-        log_debug("vk_create_swapchain: image_view index=", i, " result=", view_result)
         if view_result != .SUCCESS {
+            spy.error("swapchain image view creation failed index=", i, " result=", view_result)
             return false
         }
         vk_set_debug_name(
@@ -175,7 +126,9 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
         sType = .SEMAPHORE_CREATE_INFO,
     }
     for i in 0 ..< actual_count {
-        if vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &ctx.swapchain_render_finished[i]) != .SUCCESS {
+        semaphore_result := vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &ctx.swapchain_render_finished[i])
+        if semaphore_result != .SUCCESS {
+            spy.error("swapchain render-finished semaphore creation failed index=", i, " result=", semaphore_result)
             return false
         }
         vk_set_debug_name(
@@ -185,15 +138,6 @@ vk_create_swapchain :: proc(ctx: ^Vk_Context, width, height: i32) -> bool {
             fmt.tprintf("swapchain image %d render finished", i),
         )
     }
-
-    log_debug(
-        "vk_create_swapchain: ready image_count=",
-        ctx.swapchain_image_count,
-        " extent=",
-        ctx.swapchain_extent.width,
-        "x",
-        ctx.swapchain_extent.height,
-    )
 
     return true
 }

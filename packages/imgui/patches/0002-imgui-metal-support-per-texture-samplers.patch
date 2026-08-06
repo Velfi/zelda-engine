@@ -1,0 +1,107 @@
+From 7a4b9f7f95f4209b2bba366655806e8d901a1c42 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Fri, 12 Jun 2026 18:30:00 -0300
+Subject: [PATCH] feat(metal): support per-texture imgui samplers
+
+Expose the active Metal render state to imgui draw callbacks and switch the
+backend shader to use a bound sampler instead of a hardcoded linear sampler.
+This lets callers keep linear as the default while opting individual textures
+into nearest sampling.
+---
+ backends/imgui_impl_metal.mm | 27 ++++++++++++++++++++++++---
+ 1 file changed, 24 insertions(+), 3 deletions(-)
+
+diff --git a/backends/imgui_impl_metal.mm b/backends/imgui_impl_metal.mm
+index 99a9c2f6b..21e300303 100644
+--- a/backends/imgui_impl_metal.mm
++++ b/backends/imgui_impl_metal.mm
+@@ -66,6 +66,7 @@ @interface MetalContext : NSObject
+ @property (nonatomic, strong) id<MTLDevice>                 device;
+ @property (nonatomic, strong) id<MTLDepthStencilState>      depthStencilState;
+ @property (nonatomic, strong) FramebufferDescriptor*        framebufferDescriptor; // framebuffer descriptor for current frame; transient
++@property (nonatomic, strong) id<MTLSamplerState>           samplerDefault;
+ @property (nonatomic, strong) NSMutableDictionary*          renderPipelineStateCache; // pipeline cache; keyed on framebuffer descriptors
+ @property (nonatomic, strong, nullable) id<MTLTexture>      fontTexture;
+ @property (nonatomic, strong) NSMutableArray<MetalBuffer*>* bufferCache;
+@@ -81,6 +82,13 @@ - (MetalBuffer*)dequeueReusableBufferOfLength:(NSUInteger)length device:(id<MTLD
+     ImGui_ImplMetal_Data()      { memset((void*)this, 0, sizeof(*this)); }
+ };
+ 
++struct ImGui_ImplMetal_RenderState
++{
++    id<MTLCommandBuffer>        CommandBuffer;
++    id<MTLRenderCommandEncoder> CommandEncoder;
++    id<MTLSamplerState>         SamplerDefault;
++};
++
+ static ImGui_ImplMetal_Data*    ImGui_ImplMetal_GetBackendData()    { return ImGui::GetCurrentContext() ? (ImGui_ImplMetal_Data*)ImGui::GetIO().BackendRendererUserData : nullptr; }
+ static void                     ImGui_ImplMetal_DestroyBackendData(){ IM_DELETE(ImGui_ImplMetal_GetBackendData()); }
+ 
+@@ -210,6 +218,7 @@ static void ImGui_ImplMetal_SetupRenderState(ImDrawData* drawData, id<MTLCommand
+     [commandEncoder setVertexBytes:&ortho_projection length:sizeof(ortho_projection) atIndex:1];
+ 
+     [commandEncoder setRenderPipelineState:renderPipelineState];
++    [commandEncoder setFragmentSamplerState:bd->SharedMetalContext.samplerDefault atIndex:0];
+ 
+     [commandEncoder setVertexBuffer:vertexBuffer.buffer offset:0 atIndex:0];
+     [commandEncoder setVertexBufferOffset:vertexBufferOffset atIndex:0];
+@@ -246,6 +255,13 @@ void ImGui_ImplMetal_RenderDrawData(ImDrawData* drawData, id<MTLCommandBuffer> c
+ 
+     ImGui_ImplMetal_SetupRenderState(drawData, commandBuffer, commandEncoder, renderPipelineState, vertexBuffer, 0);
+ 
++    ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
++    ImGui_ImplMetal_RenderState render_state;
++    render_state.CommandBuffer = commandBuffer;
++    render_state.CommandEncoder = commandEncoder;
++    render_state.SamplerDefault = ctx.samplerDefault;
++    platform_io.Renderer_RenderState = &render_state;
++
+     // Will project scissor/clipping rectangles into framebuffer space
+     ImVec2 clip_off = drawData->DisplayPos;         // (0,0) unless using multi-viewports
+     ImVec2 clip_scale = drawData->FramebufferScale; // (1,1) unless using retina display which are often (2,2)
+@@ -314,6 +330,7 @@ void ImGui_ImplMetal_RenderDrawData(ImDrawData* drawData, id<MTLCommandBuffer> c
+         vertexBufferOffset += (size_t)draw_list->VtxBuffer.Size * sizeof(ImDrawVert);
+         indexBufferOffset += (size_t)draw_list->IdxBuffer.Size * sizeof(ImDrawIdx);
+     }
++    platform_io.Renderer_RenderState = nullptr;
+ 
+     MetalContext* sharedMetalContext = bd->SharedMetalContext;
+     [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>)
+@@ -373,8 +390,17 @@ bool ImGui_ImplMetal_CreateDeviceObjects(id<MTLDevice> device)
+     depthStencilDescriptor.depthWriteEnabled = NO;
+     depthStencilDescriptor.depthCompareFunction = MTLCompareFunctionAlways;
+     bd->SharedMetalContext.depthStencilState = [device newDepthStencilStateWithDescriptor:depthStencilDescriptor];
++    MTLSamplerDescriptor* samplerDescriptor = [[MTLSamplerDescriptor alloc] init];
++    samplerDescriptor.minFilter = MTLSamplerMinMagFilterLinear;
++    samplerDescriptor.magFilter = MTLSamplerMinMagFilterLinear;
++    samplerDescriptor.mipFilter = MTLSamplerMipFilterLinear;
++    samplerDescriptor.sAddressMode = MTLSamplerAddressModeClampToEdge;
++    samplerDescriptor.tAddressMode = MTLSamplerAddressModeClampToEdge;
++    samplerDescriptor.rAddressMode = MTLSamplerAddressModeClampToEdge;
++    bd->SharedMetalContext.samplerDefault = [device newSamplerStateWithDescriptor:samplerDescriptor];
+ #ifdef IMGUI_IMPL_METAL_CPP
+     [depthStencilDescriptor release];
++    [samplerDescriptor release];
+ #endif
+     ImGui_ImplMetal_CreateFontsTexture(device);
+     return true;
+@@ -383,6 +409,7 @@ bool ImGui_ImplMetal_CreateDeviceObjects(id<MTLDevice> device)
+ void ImGui_ImplMetal_DestroyDeviceObjects()
+ {
+     ImGui_ImplMetal_Data* bd = ImGui_ImplMetal_GetBackendData();
++    bd->SharedMetalContext.samplerDefault = nil;
+     ImGui_ImplMetal_DestroyFontsTexture();
+     [bd->SharedMetalContext.renderPipelineStateCache removeAllObjects];
+ }
+@@ -536,6 +563,6 @@ - (MetalBuffer*)dequeueReusableBufferOfLength:(NSUInteger)length device:(id<MTLD
+     "fragment half4 fragment_main(VertexOut in [[stage_in]],\n"
++    "                             sampler textureSampler [[sampler(0)]],\n"
+     "                             texture2d<half, access::sample> texture [[texture(0)]]) {\n"
+-    "    constexpr sampler linearSampler(coord::normalized, min_filter::linear, mag_filter::linear, mip_filter::linear);\n"
+-    "    half4 texColor = texture.sample(linearSampler, in.texCoords);\n"
++    "    half4 texColor = texture.sample(textureSampler, in.texCoords);\n"
+     "    return half4(in.color) * texColor;\n"
+     "}\n";
+ 
+-- 
+2.50.1 (Apple Git-155)

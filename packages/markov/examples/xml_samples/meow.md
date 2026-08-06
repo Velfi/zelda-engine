@@ -1,0 +1,1 @@
+your task is to port vendor/clay/clay to odin as rt/oui. the new library should be called oui and use standard odin instead of C APIs. for better maintainability you can split the implementation into multiple files. your goal is to swap the clay imports inside rt/drift/examples for this new all-odin library

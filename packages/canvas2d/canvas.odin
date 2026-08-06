@@ -25,6 +25,11 @@ Font :: struct {
     ready:   bool,
     display: bool,
 }
+Font_Metrics :: struct {
+    ascent:   f32,
+    descent:  f32,
+    line_gap: f32,
+}
 Texture :: render2d.Texture
 Button_Interaction :: struct {
     activated, hovered, focused: bool,
@@ -73,6 +78,8 @@ KeyboardKey :: enum {
     DOWN,
     LEFT,
     RIGHT,
+    LEFT_BRACKET,
+    RIGHT_BRACKET,
     ONE,
     TWO,
     THREE,
@@ -121,8 +128,20 @@ World_Pass_Context :: struct {
     depth_view:         vk.ImageView,
     framebuffer_extent: vk.Extent2D,
     logical_extent:     [2]i32,
+    sample_count:       vk.SampleCountFlags,
 }
 World_Pass_Callback :: #type proc(pass: ^World_Pass_Context, user_data: rawptr)
+World_Mask_Pass_Context :: struct {
+    ctx:                ^engine.Vk_Context,
+    frame:              engine.Vk_Frame,
+    color_view:         vk.ImageView,
+    color_format:       vk.Format,
+    depth_view:         vk.ImageView,
+    framebuffer_extent: vk.Extent2D,
+    logical_extent:     [2]i32,
+    sample_count:       vk.SampleCountFlags,
+}
+World_Mask_Pass_Callback :: #type proc(pass: ^World_Mask_Pass_Context, user_data: rawptr)
 Ui_Pass_Context :: struct {
     ctx:                ^engine.Vk_Context,
     frame:              engine.Vk_Frame,
@@ -142,8 +161,9 @@ Push :: struct {
     hatch_offset:  [4]f32,
     hatch_angles:  [4]f32,
     hatch_levels:  [4]f32,
+    post_effect:   [4]f32,
 }
-#assert(size_of(Push) == 112)
+#assert(size_of(Push) == 128)
 Hatch_Filter :: enum {
     Aliased,
     Anti_Aliased,
@@ -263,7 +283,28 @@ FONT_LOGICAL_CELL_H :: 64
 FONT_ROWS :: (FONT_COUNT + FONT_FALLBACK_COUNT + FONT_COLUMNS - 1) / FONT_COLUMNS
 ICON_COLUMNS :: 6
 ICON_ROWS :: 6
-MAX_TEXTURES :: 16
+UI_DESCRIPTOR_POOL_PAGE_SIZE :: 128
+WORLD_POST_MAX_PASSES :: 8
+WORLD_POST_DESCRIPTOR_COUNT :: 4
+WORLD_POST_PING_DESCRIPTOR_BASE :: 0
+WORLD_POST_SCENE_DESCRIPTOR :: 2
+WORLD_POST_HDR_DESCRIPTOR :: 3
+
+Ui_Descriptor_Pool_Page :: struct {
+    pool:      vk.DescriptorPool,
+    allocated: int,
+}
+
+World_Post_Resolution :: enum u8 {
+    Full,
+    Half,
+    Quarter,
+}
+
+World_Post_Pass_Request :: struct {
+    resolution: World_Post_Resolution,
+    parameters: [4]f32,
+}
 GLYPH_ATLAS_PAGE_COUNT :: 4
 GLYPH_ATLAS_PAGE_SIZE :: 2048
 GLYPH_ATLAS_PADDING :: 2
@@ -275,7 +316,8 @@ GLYPH_ATLAS_CELL_64 :: 88
 GLYPH_ATLAS_CELL_128 :: 168
 GLYPH_ATLAS_SLOTS_32 :: (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_32) * (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_32)
 GLYPH_ATLAS_SLOTS_64 :: (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_64) * (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_64)
-GLYPH_ATLAS_SLOTS_128 :: (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_128) * (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_128)
+GLYPH_ATLAS_SLOTS_128 ::
+    (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_128) * (GLYPH_ATLAS_PAGE_SIZE / GLYPH_ATLAS_CELL_128)
 GLYPH_CACHE_SLOT_COUNT :: GLYPH_ATLAS_SLOTS_32 + GLYPH_ATLAS_SLOTS_64 + GLYPH_ATLAS_SLOTS_128 * 2
 TEXT_INPUT_CAPACITY :: 1024
 TEXT_COMPOSITION_CAPACITY :: 1024
@@ -287,20 +329,21 @@ Glyph_Cache_Key :: struct {
 }
 
 Glyph_Cache_Entry :: struct {
-    key:          Glyph_Cache_Key,
-    occupied:     bool,
-    page:         u8,
-    generation:   u32,
-    x, y:         i32,
-    width, height:i32,
-    left, top:    i32,
-    last_used:    u64,
-    pinned_until: u64,
+    key:           Glyph_Cache_Key,
+    occupied:      bool,
+    page:          u8,
+    generation:    u32,
+    x, y:          i32,
+    width, height: i32,
+    left, top:     i32,
+    last_used:     u64,
+    pinned_until:  u64,
 }
 
 State :: struct {
     renderer_descriptor:                       render2d.Renderer_Descriptor,
     config_flags:                              ConfigFlags,
+    backend_initializing:                      bool,
     window:                                    ^sdl.Window,
     text_input:                                [TEXT_INPUT_CAPACITY]u8,
     text_input_length:                         int,
@@ -310,12 +353,13 @@ State :: struct {
     text_composition_selection_length:         int,
     platform_window:                           render2d.SDL_Window_Runtime,
     ctx:                                       engine.Vk_Context,
-    textures:                                  [MAX_TEXTURES]resources.Image,
-    dynamic_staging:                           [MAX_TEXTURES][engine.MAX_FRAMES_IN_FLIGHT]engine.Vk_Buffer,
-    dynamic_pixels:                            [MAX_TEXTURES][dynamic]u8,
-    dynamic_pending:                           [MAX_TEXTURES]bool,
-    dynamic_bytes_per_pixel:                   [MAX_TEXTURES]int,
-    dynamic_dirty:                             [MAX_TEXTURES]Rectangle,
+    textures:                                  [dynamic]resources.Image,
+    texture_descriptors:                       [dynamic]vk.DescriptorSet,
+    dynamic_staging:                           [dynamic][engine.MAX_FRAMES_IN_FLIGHT]engine.Vk_Buffer,
+    dynamic_pixels:                            [dynamic][dynamic]u8,
+    dynamic_pending:                           [dynamic]bool,
+    dynamic_bytes_per_pixel:                   [dynamic]int,
+    dynamic_dirty:                             [dynamic]Rectangle,
     glyph_pages:                               [GLYPH_ATLAS_PAGE_COUNT]Texture,
     glyph_entries:                             [GLYPH_CACHE_SLOT_COUNT]Glyph_Cache_Entry,
     glyph_lookup:                              map[Glyph_Cache_Key]int,
@@ -324,22 +368,40 @@ State :: struct {
     glyph_cache_evictions:                     u64,
     glyph_cache_failures:                      u64,
     depth:                                     resources.Image,
+    world_msaa_color:                          resources.Image,
+    world_msaa_depth:                          resources.Image,
+    world_mask:                                resources.Image,
+    world_msaa_mask:                           resources.Image,
+    world_mask_sample_ready:                   bool,
+    world_msaa_color_initialized:              bool,
+    world_sample_count_requested:              u32,
+    world_sample_count_effective:              u32,
     depth_initialized:                         bool,
+    depth_sample_ready:                        bool,
     world_scene:                               resources.Image,
     world_render_width, world_render_height:   u32,
     world_post_process_enabled:                bool,
     world_scene_sample_ready:                  bool,
+    world_post_aux_texture_ids:                [2]int,
+    world_post_passes:                         [WORLD_POST_MAX_PASSES]World_Post_Pass_Request,
+    world_post_pass_count:                     int,
+    world_post_ping:                           [2]resources.Image,
+    world_post_ping_sample_ready:              [2]bool,
     texture_count:                             int,
     texture_width, texture_height:             int,
     icon_y, icon_width, icon_height:           int,
     font_cell_width, font_cell_height:         int,
     font_origin_x, font_baseline:              int,
+    font_metrics_em:                           [2]Font_Metrics,
     font_atlas_width, font_atlas_height:       int,
     font_advance_em:                           [2][FONT_COUNT]f32,
-    descriptor_layout:                         vk.DescriptorSetLayout,
-    descriptor_pool:                           vk.DescriptorPool,
-    descriptors:                               [MAX_TEXTURES]vk.DescriptorSet,
-    pipeline_layout:                           vk.PipelineLayout,
+    ui_descriptor_layout:                      vk.DescriptorSetLayout,
+    ui_descriptor_pool_pages:                  [dynamic]Ui_Descriptor_Pool_Page,
+    post_descriptor_layout:                    vk.DescriptorSetLayout,
+    post_descriptor_pool:                      vk.DescriptorPool,
+    post_descriptors:                          [WORLD_POST_DESCRIPTOR_COUNT]vk.DescriptorSet,
+    ui_pipeline_layout:                        vk.PipelineLayout,
+    post_pipeline_layout:                      vk.PipelineLayout,
     pipeline:                                  vk.Pipeline,
     hdr_pipeline, post_pipeline:               vk.Pipeline,
     hdr_scene:                                 resources.Image,
@@ -380,6 +442,9 @@ State :: struct {
     world_pass_user_data:                      rawptr,
     world_pre_pass:                            World_Pass_Callback,
     world_pre_pass_user_data:                  rawptr,
+    world_mask_pass:                           World_Mask_Pass_Callback,
+    world_mask_pass_user_data:                 rawptr,
+    world_mask_active:                         bool,
     ui_pass:                                   Ui_Pass_Callback,
     ui_pass_user_data:                         rawptr,
     gfx_frame_signpost:                        u64,
@@ -420,10 +485,46 @@ SetWorldRenderSize :: proc(width, height: u32) {
     state.world_render_height = height
 }
 
+SetWorldSampleCount :: proc(samples: u32) {
+    requested := samples
+    if requested != 2 && requested != 4 do requested = 1
+    state.world_sample_count_requested = requested
+}
+
+WorldSampleCountSupported :: proc(samples: u32) -> bool {
+    if samples == 1 do return true
+    if state == nil || !state.ctx.initialized || !state.ctx.caps.supports_min_depth_resolve do return false
+    if samples == 2 do return ._2 in state.ctx.caps.framebuffer_sample_counts
+    if samples == 4 do return ._4 in state.ctx.caps.framebuffer_sample_counts
+    return false
+}
+
+GetWorldSampleCount :: proc() -> u32 {
+    if state == nil do return 1
+    return max(state.world_sample_count_effective, 1)
+}
+
 // SetWorldPostProcessEnabled resolves the world through the consumer's post
 // shader before native-resolution UI is submitted. This is independent of
 // fixed-resolution world rendering and remains product-neutral: consumers
 // define the effect and encode its push constants through Renderer_Descriptor.
 SetWorldPostProcessEnabled :: proc(enabled: bool) {
     state.world_post_process_enabled = enabled
+}
+
+// SetWorldPostAuxTextures provides two consumer-defined sampled inputs to the
+// product post shader. Their meaning remains entirely consumer-owned.
+SetWorldPostAuxTextures :: proc(first, second: Texture) {
+    if state == nil do return
+    state.world_post_aux_texture_ids = {first.id, second.id}
+    state.world_scene_sample_ready = false
+    state.world_scene.width = 0
+}
+
+// SetWorldPostPassPlan requests an ordered, fixed-capacity chain. An empty
+// plan preserves the legacy direct world-post resolve.
+SetWorldPostPassPlan :: proc(requests: []World_Post_Pass_Request) {
+    if state == nil do return
+    state.world_post_pass_count = min(len(requests), WORLD_POST_MAX_PASSES)
+    for index in 0 ..< state.world_post_pass_count do state.world_post_passes[index] = requests[index]
 }

@@ -175,6 +175,72 @@ vk_create_host_buffer :: proc(
     return true
 }
 
+vk_create_device_buffer_named :: proc(
+    ctx: ^Vk_Context,
+    size: vk.DeviceSize,
+    usage: vk.BufferUsageFlags,
+    out: ^Vk_Buffer,
+    name: string,
+) -> bool {
+    if ctx == nil || out == nil do return false
+    out^ = {}
+    vk_clear_resource_error(ctx)
+    if size == 0 {
+        vk_record_resource_error(ctx, .Invalid_Size, name, 0, 0)
+        return false
+    }
+    info := vk.BufferCreateInfo {
+        sType       = .BUFFER_CREATE_INFO,
+        size        = size,
+        usage       = usage,
+        sharingMode = .EXCLUSIVE,
+    }
+    if vk.CreateBuffer(ctx.device, &info, nil, &out.handle) != .SUCCESS do return false
+    vk_set_debug_name(ctx, .BUFFER, auto_cast out.handle, name)
+    req: vk.MemoryRequirements
+    vk.GetBufferMemoryRequirements(ctx.device, out.handle, &req)
+    memory_type, found := vk_find_memory_type(ctx, req.memoryTypeBits, {.DEVICE_LOCAL})
+    if !found {
+        vk.DestroyBuffer(ctx.device, out.handle, nil)
+        out^ = {}
+        vk_record_resource_error(ctx, .Unsupported, name, u64(size), 0)
+        return false
+    }
+    alloc := vk.MemoryAllocateInfo {
+        sType           = .MEMORY_ALLOCATE_INFO,
+        allocationSize  = req.size,
+        memoryTypeIndex = memory_type,
+    }
+    if !vk_allocate_memory_checked(ctx, &alloc, name, &out.memory) {
+        vk.DestroyBuffer(ctx.device, out.handle, nil)
+        out^ = {}
+        return false
+    }
+    if vk.BindBufferMemory(ctx.device, out.handle, out.memory, 0) != .SUCCESS {
+        vk_destroy_buffer(ctx, out)
+        return false
+    }
+    out.size = size
+    return true
+}
+
+vk_cmd_copy_buffer_range :: proc(
+    ctx: ^Vk_Context,
+    cmd: vk.CommandBuffer,
+    source, destination: ^Vk_Buffer,
+    source_offset, destination_offset, size: vk.DeviceSize,
+) -> bool {
+    if ctx == nil || cmd == nil || source == nil || destination == nil ||
+       source.handle == vk.Buffer(0) || destination.handle == vk.Buffer(0) || size == 0 ||
+       source_offset + size > source.size || destination_offset + size > destination.size {
+        return false
+    }
+    region := vk.BufferCopy {srcOffset = source_offset, dstOffset = destination_offset, size = size}
+    vk.CmdCopyBuffer(cmd, source.handle, destination.handle, 1, &region)
+    ctx.command_shape.transfer_copy_count += 1
+    return true
+}
+
 vk_destroy_buffer :: proc(ctx: ^Vk_Context, buffer: ^Vk_Buffer) {
     if buffer.mapped != nil {
         vk.UnmapMemory(ctx.device, buffer.memory)

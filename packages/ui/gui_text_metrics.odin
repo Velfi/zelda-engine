@@ -448,6 +448,14 @@ gui_font_ascii_glyph_bounds :: proc(
     ) != 0
 }
 
+gui_font_metrics :: proc(font_kind: Gui_Font_Kind, pixel_height: int, out: ^Gui_Font_Metrics) -> bool {
+    effective_font_kind := gui_effective_font_kind(font_kind)
+    if out == nil || pixel_height <= 0 || !gui_text_shaper_ready || !gui_font_kind_ready(effective_font_kind) {
+        return false
+    }
+    return vo_textshape_font_metrics(i32(effective_font_kind), i32(pixel_height), out) != 0
+}
+
 gui_font_render_ascii_atlas :: proc(
     font_kind: Gui_Font_Kind,
     glyph_first, glyph_last, pixel_height, cell_width, cell_height, columns, origin_x, baseline: int,

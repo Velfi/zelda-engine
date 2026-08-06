@@ -43,14 +43,14 @@ SetVSyncEnabled :: proc(enabled: bool) {
     }
     engine.vk_set_vsync_enabled(&canvas.ctx, enabled)
 }
-InitWindow :: proc(width, height: i32, title: cstring) {
+InitWindow :: proc(width, height: i32, title: cstring) -> bool {
     state_ensure()
     if state.initialized {
         vk.load_proc_addresses(cast(rawptr)sdl.Vulkan_GetVkGetInstanceProcAddr())
         vk.load_proc_addresses(state.ctx.instance)
         vk.load_proc_addresses(state.ctx.device)
         state.running = true
-        return
+        return true
     }
     state.width = width; state.height = height
     state.running = true
@@ -70,10 +70,12 @@ InitWindow :: proc(width, height: i32, title: cstring) {
         high_dpi      = .WINDOW_HIGHDPI in state.config_flags,
         not_focusable = .WINDOW_NOT_FOCUSABLE in state.config_flags,
     }
-    if !render2d.sdl_window_create(&state.platform_window, width, height, title, window_config) do return
+    if !render2d.sdl_window_create(&state.platform_window, width, height, title, window_config) do return false
     state.window = state.platform_window.handle
     state.initialized = backend_init()
-    state.running = state.initialized}
+    state.running = state.initialized
+    return state.initialized
+}
 CloseWindow :: proc() { if state != nil do backend_destroy() }
 DestroyPersistentState :: proc() {
     if state == nil do return
@@ -92,7 +94,16 @@ GetScreenWidth :: proc() -> i32 {if width, height, ok := render2d.sdl_window_siz
     return state.width}
 GetScreenHeight :: proc() -> i32 {if width, height, ok := render2d.sdl_window_size(&state.platform_window); ok do state.width, state.height = width, height
     return state.height}
-GetTime :: proc() -> f64 { return time.duration_seconds(time.tick_since(state.start)) }
+GetWorldRenderSize :: proc() -> (width, height: i32) {
+    if state.world_render_width > 0 && state.world_render_height > 0 {
+        return i32(state.world_render_width), i32(state.world_render_height)
+    }
+    return GetScreenWidth(), GetScreenHeight()
+}
+GetTime :: proc() -> f64 {
+    if state == nil do return 0
+    return time.duration_seconds(time.tick_since(state.start))
+}
 GetGpuFrameTimeMs :: proc() -> (ms: f64, available: bool) {
     sample := engine.gpu_profiler_last_sample(&state.ctx)
     return sample.frame_ms, sample.supported && sample.enabled && sample.valid
@@ -159,9 +170,11 @@ GetMousePinchScale :: proc() -> f32 { return state.mouse_pinch_scale }
 IsMouseButtonPressed :: proc(button: MouseButton) -> bool {assert(button != .COUNT); return(
         state.mouse_pressed[int(button)] \
     )}
-IsMouseButtonDown :: proc(button: MouseButton) -> bool { assert(button != .COUNT); return(
-        state.mouse_down[int(button)] \
-    ) }
+// Claims a pointer activation so lower-priority input handlers do not also
+// respond to the same click during the current frame.
+ConsumeMouseButtonPressed :: proc(button: MouseButton) {assert(button != .COUNT)
+    state.mouse_pressed[int(button)] = false}
+IsMouseButtonDown :: proc(button: MouseButton) -> bool {assert(button != .COUNT); return state.mouse_down[int(button)]}
 IsMouseButtonReleased :: proc(button: MouseButton) -> bool {assert(button != .COUNT); return(
         state.mouse_released[int(button)] \
     )}
@@ -243,6 +256,10 @@ keyboard_key_scancodes :: #force_inline proc(key: KeyboardKey) -> (primary, alte
         return .LEFT, .UNKNOWN
     case .RIGHT:
         return .RIGHT, .UNKNOWN
+    case .LEFT_BRACKET:
+        return .LEFTBRACKET, .UNKNOWN
+    case .RIGHT_BRACKET:
+        return .RIGHTBRACKET, .UNKNOWN
     case .ONE:
         return ._1, .KP_1
     case .TWO:
@@ -260,6 +277,10 @@ keyboard_key_scancodes :: #force_inline proc(key: KeyboardKey) -> (primary, alte
 @(no_instrumentation)
 IsKeyPressed :: #force_inline proc(key: KeyboardKey) -> bool {primary, alternate := keyboard_key_scancodes(key)
     return state.keys_pressed[int(primary)] || alternate != .UNKNOWN && state.keys_pressed[int(alternate)]}
+// Adds a product-supplied key activation to the current input frame. This is
+// useful for on-screen controls that mirror physical keyboard actions.
+InjectKeyPressed :: proc(key: KeyboardKey) {primary, _ := keyboard_key_scancodes(key)
+    state.keys_pressed[int(primary)] = true}
 @(no_instrumentation)
 IsKeyDown :: #force_inline proc(key: KeyboardKey) -> bool {primary, alternate := keyboard_key_scancodes(key)
     return state.keys_down[int(primary)] || alternate != .UNKNOWN && state.keys_down[int(alternate)]}
@@ -303,6 +324,7 @@ FocusButton :: proc(id: int) { state.gui.focused = ui.Gui_Id(id + 1) }
 input_begin_frame :: proc() {
     state.text_input_length = 0
     render2d.sdl_input_begin_frame(&state.platform_input)
+    state.mouse_down = state.platform_input.mouse_down
     state.mouse_pressed = state.platform_input.mouse_pressed
     state.mouse_released = state.platform_input.mouse_released
     state.mouse_delta = state.platform_input.mouse_delta
@@ -447,10 +469,7 @@ EndScissorMode :: proc() { state.clip_enabled = false; state.clip = {} }
 ButtonBehavior :: proc(id: int, r: Rectangle, enabled: bool) -> Button_Interaction {gui_id := ui.Gui_Id(id + 1)
     activated := ui.gui_button_behavior(&state.gui, gui_id, {r.x, r.y, r.width, r.height}, enabled)
     return {activated, state.gui.hot == gui_id, state.gui.focused == gui_id}}
-DrawRectangle :: proc(x, y, width, height: i32, color: Color) { rect(
-        {f32(x), f32(y), f32(width), f32(height)},
-        color,
-    ) }
+DrawRectangle :: proc(x, y, width, height: i32, color: Color) {rect({f32(x), f32(y), f32(width), f32(height)}, color)}
 DrawRectangleRec :: proc(r: Rectangle, color: Color) { rect(r, color) }
 // A material-space quad for projected procedural geometry. UVs remain attached
 // to the supplied corners while the hatch offset/rotation can be aligned to a

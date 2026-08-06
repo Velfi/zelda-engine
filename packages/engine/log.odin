@@ -1,5 +1,6 @@
 package engine
 
+import spy "../spy"
 import "core:fmt"
 import "core:os"
 
@@ -12,7 +13,7 @@ Log_Level :: enum int {
     Trace,
 }
 
-log_level: Log_Level = .Info
+log_level: Log_Level = .Debug
 log_level_loaded := false
 log_file: ^os.File
 
@@ -23,8 +24,14 @@ log_set_file :: proc(file: ^os.File) {
     log_file = file
 }
 
-log_write :: proc(args: ..any) {
-    if os.stderr != nil {
+log_write :: proc(args: ..any, loc := #caller_location) {
+    log_emit(.Info, ..args, loc = loc)
+}
+
+@(private)
+log_emit :: proc(level: spy.Level, args: ..any, loc := #caller_location) {
+    spy_ready := spy.log_prechecked(level, ..args, loc = loc)
+    if !spy_ready && os.stderr != nil {
         fmt.fprintln(os.stderr, ..args)
         _ = os.flush(os.stderr)
     }
@@ -56,33 +63,27 @@ log_enabled :: proc(level: Log_Level) -> bool {
     return level != .Off && int(level) <= int(log_level)
 }
 
-log_error :: proc(args: ..any) {
+log_error :: proc(args: ..any, loc := #caller_location) {
     if log_enabled(.Error) {
-        log_write(..args)
+        log_emit(.Error, ..args, loc = loc)
     }
 }
 
-log_warn :: proc(args: ..any) {
+log_warn :: proc(args: ..any, loc := #caller_location) {
     if log_enabled(.Warn) {
-        log_write(..args)
+        log_emit(.Warning, ..args, loc = loc)
     }
 }
 
-log_info :: proc(args: ..any) {
+log_info :: proc(args: ..any, loc := #caller_location) {
     if log_enabled(.Info) {
-        log_write(..args)
+        log_emit(.Info, ..args, loc = loc)
     }
 }
 
-log_debug :: proc(args: ..any) {
-    if log_enabled(.Debug) {
-        log_write(..args)
-    }
-}
-
-log_trace :: proc(args: ..any) {
+log_trace :: proc(args: ..any, loc := #caller_location) {
     if log_enabled(.Trace) {
-        log_write(..args)
+        log_emit(.Debug, ..args, loc = loc)
     }
 }
 

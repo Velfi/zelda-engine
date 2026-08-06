@@ -21,8 +21,39 @@ characterization_end :: proc() {
     delete(state.vertices)
     delete(state.indices)
     delete(state.batches)
+    delete(state.textures)
+    delete(state.texture_descriptors)
+    delete(state.dynamic_staging)
+    for pixels in state.dynamic_pixels do delete(pixels)
+    delete(state.dynamic_pixels)
+    delete(state.dynamic_pending)
+    delete(state.dynamic_bytes_per_pixel)
+    delete(state.dynamic_dirty)
     if len(state.capture_path) > 0 do delete(state.capture_path)
     state^ = {}
+}
+
+@(test)
+texture_slot_storage_grows_past_a_descriptor_pool_page :: proc(t: ^testing.T) {
+    characterization_begin()
+    defer characterization_end()
+    state.texture_count = 0
+
+    count := UI_DESCRIPTOR_POOL_PAGE_SIZE * 2 + 1
+    for index in 0 ..< count {
+        id := texture_slot_storage_append(vk.DescriptorSet(index + 1))
+        testing.expect_value(t, id, index)
+    }
+
+    testing.expect_value(t, state.texture_count, count)
+    testing.expect_value(t, len(state.textures), count)
+    testing.expect_value(t, len(state.texture_descriptors), count)
+    testing.expect_value(t, len(state.dynamic_staging), count)
+    testing.expect_value(t, len(state.dynamic_pixels), count)
+    testing.expect_value(t, len(state.dynamic_pending), count)
+    testing.expect_value(t, len(state.dynamic_bytes_per_pixel), count)
+    testing.expect_value(t, len(state.dynamic_dirty), count)
+    testing.expect_value(t, state.texture_descriptors[count - 1], vk.DescriptorSet(count))
 }
 
 expect_vector_near :: proc(t: ^testing.T, actual, expected: Vector2) {

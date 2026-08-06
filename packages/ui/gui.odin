@@ -17,6 +17,7 @@ when ODIN_OS == .Windows {
 foreign textshape {
     vo_textshape_init :: proc(font_kind: i32, font_path: cstring, logical_height: f32) -> i32 ---
     vo_textshape_add_fallback :: proc(font_kind: i32, font_path: cstring, logical_height: f32) -> i32 ---
+    vo_textshape_font_metrics :: proc(font_kind, pixel_height: i32, out: ^Gui_Font_Metrics) -> i32 ---
     vo_textshape_width :: proc(font_kind: i32, text: [^]u8, len: i32, text_scale, fallback_advance: f32) -> f32 ---
     vo_textshape_shape :: proc(font_kind: i32, text: [^]u8, len: i32, text_scale: f32, out: [^]Gui_Shaped_Glyph, out_cap: i32) -> i32 ---
     vo_textshape_shape_ex :: proc(font_kind: i32, text: [^]u8, len: i32, text_scale: f32, base_direction: i32, out: [^]Gui_Shaped_Glyph, out_cap: i32) -> i32 ---
@@ -641,6 +642,12 @@ Gui_Glyph_Bounds :: struct {
     max_x:   i32,
     ascent:  i32,
     descent: i32,
+}
+
+Gui_Font_Metrics :: struct {
+    ascent:   f32,
+    descent:  f32,
+    line_gap: f32,
 }
 
 Gui_Context :: struct {

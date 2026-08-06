@@ -1,0 +1,13 @@
+examples/imgui.ini
+temp/
+imgui/
+dear_bindings/
+backend_deps/
+ols.json
+!**/*.so
+!**/*.lib
+!**/*.dylib
+__pycache__/
+.venv/
+im.node
+libim.dylib

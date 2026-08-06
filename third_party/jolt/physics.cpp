@@ -10,12 +10,21 @@
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 #include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -25,7 +34,14 @@ using namespace JPH;
 namespace {
 constexpr ObjectLayer STATIC_LAYER = 0;
 constexpr ObjectLayer MOVING_LAYER = 1;
-constexpr uint LAYER_COUNT = 2;
+constexpr ObjectLayer CHARACTER_LAYER = 2;
+constexpr ObjectLayer VEHICLE_LAYER = 3;
+constexpr ObjectLayer BOAT_LAYER = 4;
+constexpr ObjectLayer PROP_LAYER = 5;
+constexpr ObjectLayer SOFT_BODY_LAYER = 6;
+constexpr ObjectLayer SENSOR_LAYER = 7;
+constexpr ObjectLayer CHARACTER_PROXY_LAYER = 8;
+constexpr uint LAYER_COUNT = 9;
 constexpr BroadPhaseLayer STATIC_BP(0);
 constexpr BroadPhaseLayer MOVING_BP(1);
 
@@ -40,24 +56,85 @@ public:
 class ObjectVsBroadPhase final : public ObjectVsBroadPhaseLayerFilter {
 public:
     bool ShouldCollide(ObjectLayer layer, BroadPhaseLayer broad) const override {
-        return layer == MOVING_LAYER || broad == MOVING_BP;
+        return layer != STATIC_LAYER || broad == MOVING_BP;
     }
 };
 
 class ObjectPairs final : public ObjectLayerPairFilter {
 public:
+    uint16 masks[LAYER_COUNT] {
+        0xfffe, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff,
+        0xffff
+    };
     bool ShouldCollide(ObjectLayer a, ObjectLayer b) const override {
-        return a == MOVING_LAYER || b == MOVING_LAYER;
+        if (a >= LAYER_COUNT || b >= LAYER_COUNT) return false;
+        return (masks[a] & (uint16(1) << b)) != 0 &&
+               (masks[b] & (uint16(1) << a)) != 0;
     }
 };
 
+class LayerMaskFilter final : public ObjectLayerFilter {
+public:
+    explicit LayerMaskFilter(uint16_t mask) : mMask(mask) {}
+    bool ShouldCollide(ObjectLayer layer) const override {
+        return layer < LAYER_COUNT && (mMask & (uint16_t(1) << layer)) != 0;
+    }
+private:
+    uint16_t mMask;
+};
+
 struct World {
+    struct ContactEvent {
+        uint32_t body_a, body_b;
+        uint64_t user_data_a, user_data_b;
+        float position[3], normal[3];
+        uint32_t kind;
+    };
+    class Contacts final : public ContactListener {
+    public:
+        static constexpr size_t MAX_EVENTS = 4096;
+        std::mutex mutex;
+        std::vector<ContactEvent> events;
+        uint64_t dropped_events = 0;
+
+        void record(const Body &a, const Body &b, const ContactManifold &manifold,
+                    uint32_t kind) {
+            ContactEvent event {};
+            event.body_a = a.GetID().GetIndexAndSequenceNumber();
+            event.body_b = b.GetID().GetIndexAndSequenceNumber();
+            event.user_data_a = a.GetUserData();
+            event.user_data_b = b.GetUserData();
+            RVec3 point = manifold.GetWorldSpaceContactPointOn1(0);
+            event.position[0] = float(point.GetX());
+            event.position[1] = float(point.GetY());
+            event.position[2] = float(point.GetZ());
+            event.normal[0] = manifold.mWorldSpaceNormal.GetX();
+            event.normal[1] = manifold.mWorldSpaceNormal.GetY();
+            event.normal[2] = manifold.mWorldSpaceNormal.GetZ();
+            event.kind = kind;
+            std::lock_guard<std::mutex> lock(mutex);
+            if (events.size() < MAX_EVENTS) events.push_back(event);
+            else ++dropped_events;
+        }
+
+        void OnContactAdded(const Body &a, const Body &b,
+                            const ContactManifold &manifold,
+                            ContactSettings &) override {
+            record(a, b, manifold, 0);
+        }
+        void OnContactPersisted(const Body &a, const Body &b,
+                                const ContactManifold &manifold,
+                                ContactSettings &) override {
+            // Do not enqueue resting contacts every simulation tick.
+        }
+    };
     BroadPhaseLayers broad_phase_layers;
     ObjectVsBroadPhase object_vs_broad_phase;
     ObjectPairs object_pairs;
     TempAllocatorImpl allocator;
     JobSystemThreadPool jobs;
     PhysicsSystem system;
+    Contacts contacts;
     struct Vehicle {
         Ref<VehicleConstraint> constraint;
         BodyID body;
@@ -70,22 +147,48 @@ struct World {
         Ref<HeightFieldShape> shape;
     };
     std::vector<HeightField> height_fields;
+    struct VirtualCharacter {
+        RefConst<Shape> shape;
+        Ref<CharacterVirtual> character;
+    };
+    std::vector<VirtualCharacter *> characters;
 
     World(uint max_bodies, uint max_pairs, uint max_constraints, uint temp_bytes, uint workers)
         : allocator(temp_bytes),
           jobs(cMaxPhysicsJobs, cMaxPhysicsBarriers, workers) {
         system.Init(max_bodies, 0, max_pairs, max_constraints,
                     broad_phase_layers, object_vs_broad_phase, object_pairs);
+        system.SetContactListener(&contacts);
     }
 };
 
 std::mutex init_mutex;
 uint world_count = 0;
 
+void trace_jolt(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    std::vfprintf(stderr, format, args);
+    std::fputc('\n', stderr);
+    va_end(args);
+}
+
+#ifdef JPH_ENABLE_ASSERTS
+bool assert_jolt(const char *expression, const char *message,
+                 const char *file, uint line) {
+    std::fprintf(stderr, "Jolt assertion %s:%u: (%s) %s\n", file, line,
+                 expression, message ? message : "");
+    std::fflush(stderr);
+    return true;
+}
+#endif
+
 void acquire_jolt() {
     std::lock_guard<std::mutex> lock(init_mutex);
     if (world_count++ == 0) {
         RegisterDefaultAllocator();
+        Trace = trace_jolt;
+        JPH_IF_ENABLE_ASSERTS(AssertFailed = assert_jolt;)
         Factory::sInstance = new Factory();
         RegisterTypes();
     }
@@ -122,6 +225,29 @@ uint32_t add_body(World *world, const ShapeSettings &shape, const float *p,
         settings, type == EMotionType::Static ? EActivation::DontActivate : EActivation::Activate);
     return id.GetIndexAndSequenceNumber();
 }
+
+uint32_t add_body_layered(World *world, const ShapeSettings &shape, const float *p,
+                          const float *q, int motion, float mass, uint64_t user_data,
+                          uint16_t object_layer, float friction, float restitution,
+                          bool sensor) {
+    ShapeSettings::ShapeResult result = shape.Create();
+    if (result.HasError() || object_layer >= LAYER_COUNT) return BodyID::cInvalidBodyID;
+    EMotionType type = motion == 0 ? EMotionType::Static :
+                       motion == 1 ? EMotionType::Kinematic : EMotionType::Dynamic;
+    BodyCreationSettings settings(result.Get(), position(p), rotation(q), type,
+                                  ObjectLayer(object_layer));
+    settings.mUserData = user_data;
+    settings.mFriction = std::max(0.0f, friction);
+    settings.mRestitution = std::max(0.0f, restitution);
+    settings.mIsSensor = sensor;
+    if (type == EMotionType::Dynamic && mass > 0.0f) {
+        settings.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
+        settings.mMassPropertiesOverride.mMass = mass;
+    }
+    BodyID id = world->system.GetBodyInterface().CreateAndAddBody(
+        settings, type == EMotionType::Static ? EActivation::DontActivate : EActivation::Activate);
+    return id.GetIndexAndSequenceNumber();
+}
 } // namespace
 
 extern "C" {
@@ -132,12 +258,16 @@ World *zelda_physics_world_create(uint32_t max_bodies, uint32_t workers) {
         workers = std::max(1u, available > 1 ? available - 1 : 1u);
     }
     acquire_jolt();
+    // A map-scoped world can update clipmap height fields, vehicles, virtual
+    // characters and soft bodies in one step. Jolt's broad-phase update may
+    // need a transient block larger than the old subsystem-world allowance.
     return new World(max_bodies, max_bodies, std::max(1024u, max_bodies / 2),
-                     10u * 1024u * 1024u, workers);
+                     64u * 1024u * 1024u, workers);
 }
 
 void zelda_physics_world_destroy(World *world) {
     if (!world) return;
+    for (World::VirtualCharacter *character : world->characters) delete character;
     for (World::Vehicle *vehicle : world->vehicles) {
         world->system.RemoveStepListener(vehicle->constraint);
         world->system.RemoveConstraint(vehicle->constraint);
@@ -155,6 +285,12 @@ void zelda_physics_world_step(World *world, float delta_time, uint32_t collision
 
 void zelda_physics_world_set_gravity(World *world, const float *gravity) {
     if (world && gravity) world->system.SetGravity(vector(gravity));
+}
+
+void zelda_physics_world_set_layer_mask(
+    World *world, uint16_t object_layer, uint16_t mask) {
+    if (world && object_layer < LAYER_COUNT)
+        world->object_pairs.masks[object_layer] = mask;
 }
 
 uint32_t zelda_physics_body_add_box(World *world, const float *half_extent,
@@ -179,6 +315,78 @@ uint32_t zelda_physics_body_add_capsule(World *world, float half_height, float r
     if (!world || !p || !q || half_height <= 0 || radius <= 0) return BodyID::cInvalidBodyID;
     CapsuleShapeSettings shape(half_height, radius);
     return add_body(world, shape, p, q, motion, mass, user_data);
+}
+
+uint32_t zelda_physics_body_add_box_layered(
+    World *world, const float *half_extent, const float *p, const float *q,
+    int motion, float mass, uint64_t user_data, uint16_t object_layer,
+    float friction, float restitution, bool sensor) {
+    if (!world || !half_extent || !p || !q || half_extent[0] <= 0 ||
+        half_extent[1] <= 0 || half_extent[2] <= 0)
+        return BodyID::cInvalidBodyID;
+    BoxShapeSettings shape(vector(half_extent));
+    return add_body_layered(world, shape, p, q, motion, mass, user_data,
+                            object_layer, friction, restitution, sensor);
+}
+
+uint32_t zelda_physics_body_add_capsule_layered(
+    World *world, float half_height, float radius, const float *p, const float *q,
+    int motion, float mass, uint64_t user_data, uint16_t object_layer,
+    float friction, float restitution, bool sensor) {
+    if (!world || !p || !q || half_height <= 0 || radius <= 0)
+        return BodyID::cInvalidBodyID;
+    CapsuleShapeSettings shape(half_height, radius);
+    return add_body_layered(world, shape, p, q, motion, mass, user_data,
+                            object_layer, friction, restitution, sensor);
+}
+
+uint32_t zelda_physics_body_add_mesh(
+    World *world, const float *vertices, uint32_t vertex_count,
+    const uint32_t *indices, uint32_t triangle_count, const float *p,
+    const float *q, uint64_t user_data, uint16_t object_layer,
+    float friction, float restitution) {
+    if (!world || !vertices || !indices || !p || !q || vertex_count < 3 ||
+        triangle_count == 0 || object_layer >= LAYER_COUNT)
+        return BodyID::cInvalidBodyID;
+    VertexList vertex_list;
+    vertex_list.reserve(vertex_count);
+    for (uint32_t i = 0; i < vertex_count; ++i)
+        vertex_list.emplace_back(
+            vertices[i * 3 + 0], vertices[i * 3 + 1], vertices[i * 3 + 2]);
+    IndexedTriangleList triangles;
+    triangles.reserve(triangle_count);
+    for (uint32_t i = 0; i < triangle_count; ++i) {
+        uint32_t a = indices[i * 3 + 0], b = indices[i * 3 + 1],
+                 c = indices[i * 3 + 2];
+        if (a >= vertex_count || b >= vertex_count || c >= vertex_count)
+            return BodyID::cInvalidBodyID;
+        triangles.emplace_back(a, b, c);
+    }
+    MeshShapeSettings shape(std::move(vertex_list), std::move(triangles));
+    return add_body_layered(world, shape, p, q, 0, 0.0f, user_data,
+                            object_layer, friction, restitution, false);
+}
+
+void zelda_physics_world_get_stats(
+    World *world, uint32_t *body_count, uint32_t *active_body_count,
+    uint32_t *soft_body_count) {
+    if (!body_count || !active_body_count || !soft_body_count) return;
+    *body_count = *active_body_count = *soft_body_count = 0;
+    if (!world) return;
+    *body_count = world->system.GetNumBodies();
+    *active_body_count = world->system.GetNumActiveBodies(EBodyType::RigidBody);
+    *soft_body_count = world->system.GetNumActiveBodies(EBodyType::SoftBody);
+}
+
+uint32_t zelda_physics_world_drain_contacts(
+    World *world, World::ContactEvent *events, uint32_t capacity) {
+    if (!world || !events || capacity == 0) return 0;
+    std::lock_guard<std::mutex> lock(world->contacts.mutex);
+    uint32_t count = std::min(capacity, uint32_t(world->contacts.events.size()));
+    std::copy_n(world->contacts.events.begin(), count, events);
+    world->contacts.events.erase(
+        world->contacts.events.begin(), world->contacts.events.begin() + count);
+    return count;
 }
 
 void zelda_physics_body_remove(World *world, uint32_t id) {
@@ -288,9 +496,238 @@ void zelda_physics_body_add_impulse(World *world, uint32_t id, const float *impu
     if (world && impulse) world->system.GetBodyInterface().AddImpulse(body_id(id), vector(impulse));
 }
 
+void zelda_physics_body_move_kinematic(
+    World *world, uint32_t id, const float *p, const float *q, float delta_time) {
+    if (world && p && q && delta_time > 0.0f)
+        world->system.GetBodyInterface().MoveKinematic(
+            body_id(id), position(p), rotation(q), delta_time);
+}
+
+void zelda_physics_body_set_angular_velocity(World *world, uint32_t id, const float *velocity) {
+    if (world && velocity)
+        world->system.GetBodyInterface().SetAngularVelocity(body_id(id), vector(velocity));
+}
+
+uint64_t zelda_physics_body_get_user_data(World *world, uint32_t id) {
+    return world ? world->system.GetBodyInterface().GetUserData(body_id(id)) : 0;
+}
+
+World::VirtualCharacter *zelda_physics_character_create(
+    World *world, float half_height, float radius, const float *p,
+    float max_slope_angle, float mass, float max_strength, uint64_t user_data) {
+    if (!world || !p || half_height <= 0.0f || radius <= 0.0f) return nullptr;
+    CapsuleShapeSettings shape_settings(half_height, radius);
+    auto shape_result = shape_settings.Create();
+    if (shape_result.HasError()) return nullptr;
+    auto *result = new World::VirtualCharacter;
+    result->shape = shape_result.Get();
+    CharacterVirtualSettings settings;
+    settings.mShape = result->shape;
+    settings.mUp = Vec3::sAxisY();
+    settings.mMaxSlopeAngle = std::max(0.0f, max_slope_angle);
+    settings.mMass = std::max(0.0f, mass);
+    settings.mMaxStrength = std::max(0.0f, max_strength);
+    settings.mCharacterPadding = 0.02f;
+    settings.mPredictiveContactDistance = 0.1f;
+    settings.mSupportingVolume = Plane(Vec3::sAxisY(), -radius);
+    result->character = new CharacterVirtual(
+        &settings, position(p), Quat::sIdentity(), user_data, &world->system);
+    world->characters.push_back(result);
+    return result;
+}
+
+void zelda_physics_character_destroy(World *world, World::VirtualCharacter *character) {
+    if (!world || !character) return;
+    world->characters.erase(
+        std::remove(world->characters.begin(), world->characters.end(), character),
+        world->characters.end());
+    delete character;
+}
+
+void zelda_physics_character_set_position(
+    World::VirtualCharacter *character, const float *p) {
+    if (character && p) character->character->SetPosition(position(p));
+}
+
+bool zelda_physics_character_step(
+    World *world, World::VirtualCharacter *character, const float *velocity,
+    float delta_time, const float *gravity, float step_up, float step_down,
+    float *out_position, float *out_velocity, float *out_normal,
+    uint32_t *out_ground_state, uint32_t *out_ground_body) {
+    if (!world || !character || !velocity || !gravity || delta_time <= 0.0f ||
+        !out_position || !out_velocity || !out_normal || !out_ground_state ||
+        !out_ground_body) return false;
+    CharacterVirtual &value = *character->character;
+    value.SetLinearVelocity(vector(velocity));
+    CharacterVirtual::ExtendedUpdateSettings settings;
+    settings.mWalkStairsStepUp = Vec3(0, std::max(0.0f, step_up), 0);
+    settings.mStickToFloorStepDown = Vec3(0, -std::max(0.0f, step_down), 0);
+    DefaultBroadPhaseLayerFilter broad_phase_filter =
+        world->system.GetDefaultBroadPhaseLayerFilter(CHARACTER_LAYER);
+    DefaultObjectLayerFilter object_filter =
+        world->system.GetDefaultLayerFilter(CHARACTER_LAYER);
+    BodyFilter body_filter;
+    ShapeFilter shape_filter;
+    value.ExtendedUpdate(delta_time, vector(gravity), settings,
+                         broad_phase_filter, object_filter, body_filter,
+                         shape_filter, world->allocator);
+    RVec3 p = value.GetPosition();
+    Vec3 v = value.GetLinearVelocity();
+    Vec3 n = value.GetGroundNormal();
+    out_position[0] = float(p.GetX()); out_position[1] = float(p.GetY()); out_position[2] = float(p.GetZ());
+    out_velocity[0] = v.GetX(); out_velocity[1] = v.GetY(); out_velocity[2] = v.GetZ();
+    out_normal[0] = n.GetX(); out_normal[1] = n.GetY(); out_normal[2] = n.GetZ();
+    *out_ground_state = uint32_t(value.GetGroundState());
+    *out_ground_body = value.GetGroundBodyID().GetIndexAndSequenceNumber();
+    return true;
+}
+
+uint32_t zelda_physics_soft_strand_add(
+    World *world, const float *points, const float *inverse_masses, uint32_t count,
+    float stretch_compliance, float bend_compliance, uint32_t iterations,
+    float damping, float gravity_factor, float vertex_radius, float friction,
+    uint64_t user_data, uint16_t object_layer) {
+    if (!world || !points || count < 3 || object_layer >= LAYER_COUNT)
+        return BodyID::cInvalidBodyID;
+
+    Ref<SoftBodySharedSettings> shared = new SoftBodySharedSettings;
+    shared->mVertices.reserve(count);
+    shared->mRodStretchShearConstraints.reserve(count - 1);
+    shared->mRodBendTwistConstraints.reserve(count - 2);
+    for (uint32_t index = 0; index < count; ++index) {
+        SoftBodySharedSettings::Vertex vertex;
+        vertex.mPosition = Float3(
+            points[index * 3 + 0],
+            points[index * 3 + 1],
+            points[index * 3 + 2]);
+        vertex.mInvMass = inverse_masses ? std::max(0.0f, inverse_masses[index])
+                                        : (index == 0 ? 0.0f : 1.0f);
+        shared->mVertices.push_back(vertex);
+        if (index > 0)
+            shared->mRodStretchShearConstraints.emplace_back(
+                index - 1, index, std::max(0.0f, stretch_compliance));
+        if (index > 1)
+            shared->mRodBendTwistConstraints.emplace_back(
+                index - 2, index - 1, std::max(0.0f, bend_compliance));
+    }
+    shared->CalculateRodProperties();
+    shared->Optimize();
+
+    SoftBodyCreationSettings settings(
+        shared, RVec3::sZero(), Quat::sIdentity(), ObjectLayer(object_layer));
+    settings.mUserData = user_data;
+    settings.mNumIterations = std::max(1u, iterations);
+    settings.mLinearDamping = std::max(0.0f, damping);
+    settings.mGravityFactor = std::max(0.0f, gravity_factor);
+    settings.mVertexRadius = std::max(0.0f, vertex_radius);
+    settings.mFriction = std::max(0.0f, friction);
+    // Product code supplies world-space animated roots and may project
+    // vertices against procedural collision after a step. Keeping the body
+    // transform fixed makes the vertex API stable and avoids COM rebasing.
+    settings.mUpdatePosition = false;
+    settings.mAllowSleeping = false;
+    BodyID id = world->system.GetBodyInterface().CreateAndAddSoftBody(
+        settings, EActivation::Activate);
+    return id.GetIndexAndSequenceNumber();
+}
+
+bool zelda_physics_soft_strand_set_root(
+    World *world, uint32_t id, const float *root, float delta_time,
+    bool teleport) {
+    if (!world || !root || id == BodyID::cInvalidBodyID) return false;
+    BodyLockWrite lock(world->system.GetBodyLockInterface(), body_id(id));
+    if (!lock.Succeeded() || !lock.GetBody().IsSoftBody()) return false;
+    auto *motion = static_cast<SoftBodyMotionProperties *>(
+        lock.GetBody().GetMotionProperties());
+    if (motion->GetVertices().empty()) return false;
+    SoftBodyVertex &vertex = motion->GetVertex(0);
+    Vec3 target = vector(root);
+    if (teleport || delta_time <= 0.0f) {
+        vertex.mPosition = target;
+        vertex.mPreviousPosition = target;
+        vertex.mVelocity = Vec3::sZero();
+    } else {
+        vertex.mVelocity = (target - vertex.mPosition) / delta_time;
+    }
+    world->system.GetBodyInterfaceNoLock().ActivateBody(body_id(id));
+    return true;
+}
+
+bool zelda_physics_soft_strand_set_attachment(
+    World *world, uint32_t id, const float *root, const float *tangent,
+    float delta_time, bool teleport) {
+    if (!world || !root || !tangent || id == BodyID::cInvalidBodyID)
+        return false;
+    BodyLockWrite lock(world->system.GetBodyLockInterface(), body_id(id));
+    if (!lock.Succeeded() || !lock.GetBody().IsSoftBody()) return false;
+    auto *motion = static_cast<SoftBodyMotionProperties *>(
+        lock.GetBody().GetMotionProperties());
+    if (motion->GetVertices().size() < 2) return false;
+    const Vec3 targets[2] {vector(root), vector(tangent)};
+    for (uint32_t index = 0; index < 2; ++index) {
+        SoftBodyVertex &vertex = motion->GetVertex(index);
+        if (teleport || delta_time <= 0.0f) {
+            vertex.mPosition = targets[index];
+            vertex.mPreviousPosition = targets[index];
+            vertex.mVelocity = Vec3::sZero();
+        } else {
+            const Vec3 displacement = targets[index] - vertex.mPosition;
+            vertex.mPreviousPosition += displacement;
+            vertex.mPosition = targets[index];
+            vertex.mVelocity = Vec3::sZero();
+        }
+    }
+    world->system.GetBodyInterfaceNoLock().ActivateBody(body_id(id));
+    return true;
+}
+
+bool zelda_physics_soft_strand_get_points(
+    World *world, uint32_t id, float *points, uint32_t count) {
+    if (!world || !points || id == BodyID::cInvalidBodyID) return false;
+    BodyLockRead lock(world->system.GetBodyLockInterface(), body_id(id));
+    if (!lock.Succeeded() || !lock.GetBody().IsSoftBody()) return false;
+    const auto *motion = static_cast<const SoftBodyMotionProperties *>(
+        lock.GetBody().GetMotionProperties());
+    if (motion->GetVertices().size() != count) return false;
+    for (uint32_t index = 0; index < count; ++index) {
+        const Vec3 value = motion->GetVertex(index).mPosition;
+        points[index * 3 + 0] = value.GetX();
+        points[index * 3 + 1] = value.GetY();
+        points[index * 3 + 2] = value.GetZ();
+    }
+    return true;
+}
+
+bool zelda_physics_soft_strand_set_points(
+    World *world, uint32_t id, const float *points, uint32_t count,
+    bool reset_velocity) {
+    if (!world || !points || id == BodyID::cInvalidBodyID) return false;
+    BodyLockWrite lock(world->system.GetBodyLockInterface(), body_id(id));
+    if (!lock.Succeeded() || !lock.GetBody().IsSoftBody()) return false;
+    auto *motion = static_cast<SoftBodyMotionProperties *>(
+        lock.GetBody().GetMotionProperties());
+    if (motion->GetVertices().size() != count) return false;
+    for (uint32_t index = 0; index < count; ++index) {
+        SoftBodyVertex &vertex = motion->GetVertex(index);
+        Vec3 target(
+            points[index * 3 + 0],
+            points[index * 3 + 1],
+            points[index * 3 + 2]);
+        if (reset_velocity) {
+            vertex.mPreviousPosition = target;
+            vertex.mVelocity = Vec3::sZero();
+        } else {
+            vertex.mPreviousPosition += target - vertex.mPosition;
+        }
+        vertex.mPosition = target;
+    }
+    world->system.GetBodyInterfaceNoLock().ActivateBody(body_id(id));
+    return true;
+}
+
 bool zelda_physics_world_cast_ray(World *world, const float *origin, const float *direction,
                                   float max_distance, uint32_t *out_body, float *out_fraction,
-                                  float *out_position) {
+                                  float *out_position, float *out_normal) {
     if (!world || !origin || !direction || max_distance <= 0) return false;
     RRayCast ray(position(origin), vector(direction).Normalized() * max_distance);
     RayCastResult hit;
@@ -300,6 +737,69 @@ bool zelda_physics_world_cast_ray(World *world, const float *origin, const float
     if (out_position) {
         RVec3 p = ray.GetPointOnRay(hit.mFraction);
         out_position[0] = float(p.GetX()); out_position[1] = float(p.GetY()); out_position[2] = float(p.GetZ());
+    }
+    if (out_normal) {
+        BodyLockRead lock(world->system.GetBodyLockInterface(), hit.mBodyID);
+        if (!lock.Succeeded()) return false;
+        Vec3 n = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction));
+        out_normal[0] = n.GetX(); out_normal[1] = n.GetY(); out_normal[2] = n.GetZ();
+    }
+    return true;
+}
+
+bool zelda_physics_world_cast_ray_layer(
+    World *world, const float *origin, const float *direction,
+    float max_distance, uint16_t query_layer, uint32_t *out_body,
+    float *out_fraction, float *out_position, float *out_normal) {
+    if (!world || !origin || !direction || max_distance <= 0 ||
+        query_layer >= LAYER_COUNT) return false;
+    RRayCast ray(position(origin), vector(direction).Normalized() * max_distance);
+    RayCastResult hit;
+    DefaultBroadPhaseLayerFilter broad_phase_filter =
+        world->system.GetDefaultBroadPhaseLayerFilter(ObjectLayer(query_layer));
+    DefaultObjectLayerFilter object_filter =
+        world->system.GetDefaultLayerFilter(ObjectLayer(query_layer));
+    if (!world->system.GetNarrowPhaseQuery().CastRay(
+            ray, hit, broad_phase_filter, object_filter)) return false;
+    if (out_body) *out_body = hit.mBodyID.GetIndexAndSequenceNumber();
+    if (out_fraction) *out_fraction = hit.mFraction;
+    if (out_position) {
+        RVec3 p = ray.GetPointOnRay(hit.mFraction);
+        out_position[0] = float(p.GetX());
+        out_position[1] = float(p.GetY());
+        out_position[2] = float(p.GetZ());
+    }
+    if (out_normal) {
+        BodyLockRead lock(world->system.GetBodyLockInterface(), hit.mBodyID);
+        if (!lock.Succeeded()) return false;
+        Vec3 n = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction));
+        out_normal[0] = n.GetX(); out_normal[1] = n.GetY(); out_normal[2] = n.GetZ();
+    }
+    return true;
+}
+
+bool zelda_physics_world_cast_ray_filtered(
+    World *world, const float *origin, const float *direction, float max_distance,
+    uint16_t layer_mask, uint32_t ignored_body, uint32_t *out_body,
+    float *out_fraction, float *out_position, float *out_normal) {
+    if (!world || !origin || !direction || max_distance <= 0 || layer_mask == 0) return false;
+    RRayCast ray(position(origin), vector(direction).Normalized() * max_distance);
+    RayCastResult hit;
+    LayerMaskFilter layer_filter(layer_mask);
+    IgnoreSingleBodyFilter body_filter(body_id(ignored_body));
+    if (!world->system.GetNarrowPhaseQuery().CastRay(
+            ray, hit, {}, layer_filter, body_filter)) return false;
+    if (out_body) *out_body = hit.mBodyID.GetIndexAndSequenceNumber();
+    if (out_fraction) *out_fraction = hit.mFraction;
+    RVec3 p = ray.GetPointOnRay(hit.mFraction);
+    if (out_position) {
+        out_position[0] = float(p.GetX()); out_position[1] = float(p.GetY()); out_position[2] = float(p.GetZ());
+    }
+    if (out_normal) {
+        BodyLockRead lock(world->system.GetBodyLockInterface(), hit.mBodyID);
+        if (!lock.Succeeded()) return false;
+        Vec3 n = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, p);
+        out_normal[0] = n.GetX(); out_normal[1] = n.GetY(); out_normal[2] = n.GetZ();
     }
     return true;
 }
@@ -337,7 +837,7 @@ World::Vehicle *zelda_physics_vehicle_create(
         Vec3(0, settings->center_of_mass_offset_y, 0),
         new BoxShape(Vec3(settings->half_width, settings->half_height, settings->half_length))
     ).Create().Get();
-    BodyCreationSettings body_settings(shape, position(p), rotation(q), EMotionType::Dynamic, MOVING_LAYER);
+    BodyCreationSettings body_settings(shape, position(p), rotation(q), EMotionType::Dynamic, VEHICLE_LAYER);
     body_settings.mUserData = user_data;
     body_settings.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
     body_settings.mMassPropertiesOverride.mMass = settings->mass;
@@ -402,11 +902,16 @@ World::Vehicle *zelda_physics_vehicle_create(
                       float longitudinal_friction, float lateral_friction,
                       float, float, float) {
                 uint index = std::min(wheel, 3u);
-                longitudinal = vehicle->longitudinal_grip[index] * longitudinal_friction * suspension;
+                // Jolt's vehicle sample compensates for the corrected longitudinal
+                // impulse solver with this scale. Without it, engine torque reaches
+                // the wheels but ordinary grades consume nearly all available
+                // traction and the vehicle creeps or slides downhill.
+                longitudinal = 10.0f * vehicle->longitudinal_grip[index] *
+                               longitudinal_friction * suspension;
                 lateral = vehicle->lateral_grip[index] * lateral_friction * suspension;
             });
     vehicle->constraint->SetVehicleCollisionTester(
-        new VehicleCollisionTesterCastCylinder(MOVING_LAYER, 0.5f)
+        new VehicleCollisionTesterCastCylinder(VEHICLE_LAYER, 0.5f)
     );
     world->system.AddConstraint(vehicle->constraint);
     world->system.AddStepListener(vehicle->constraint);

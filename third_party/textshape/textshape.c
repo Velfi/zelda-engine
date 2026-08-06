@@ -53,6 +53,12 @@ typedef struct Vo_Glyph_Bounds {
     int32_t descent;
 } Vo_Glyph_Bounds;
 
+typedef struct Vo_Font_Metrics {
+    float ascent;
+    float descent;
+    float line_gap;
+} Vo_Font_Metrics;
+
 static Vo_Textshape_Font *vo_textshape_font(int font_kind) {
     if (font_kind < 0 || font_kind >= VO_TEXTSHAPE_MAX_FONTS) {
         return NULL;
@@ -137,6 +143,24 @@ int vo_textshape_add_fallback(int font_kind, const char *font_path, float logica
         return 0;
     }
     vo_fallback_counts[font_kind] += 1;
+    return 1;
+}
+
+int vo_textshape_font_metrics(int font_kind, int pixel_height, Vo_Font_Metrics *out) {
+    Vo_Textshape_Font *font = vo_textshape_font(font_kind);
+    if (font == NULL || font->render_face == NULL || out == NULL || pixel_height <= 0) {
+        return 0;
+    }
+    if (FT_Set_Pixel_Sizes(font->render_face, 0, pixel_height) != 0) {
+        return 0;
+    }
+    FT_Size_Metrics metrics = font->render_face->size->metrics;
+    float ascent = (float)metrics.ascender / 64.0f;
+    float descent = -(float)metrics.descender / 64.0f;
+    float height = (float)metrics.height / 64.0f;
+    out->ascent = ascent;
+    out->descent = descent;
+    out->line_gap = height > ascent + descent ? height - ascent - descent : 0.0f;
     return 1;
 }
 

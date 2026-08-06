@@ -6,6 +6,7 @@ ENGINE_VERSION_PATCH :: u32(0)
 
 import "core:strings"
 import "core:time"
+import spy "../spy"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
@@ -16,7 +17,6 @@ MAX_FRAMES_IN_FLIGHT :: 2
 DEFAULT_REPORTED_BUDGET_CEILING :: 0.70
 DEFAULT_HEAP_SIZE_CEILING :: 0.60
 GPU_ALLOCATION_HEADROOM_BYTES :: u64(64 * 1024 * 1024)
-VK_DEBUG_FRAME_LOG_LIMIT :: u32(120)
 VK_SHUTDOWN_FRAME_FENCE_TIMEOUT_NS :: u64(1_000_000_000)
 
 Gpu_Memory_Heap :: struct {
@@ -72,6 +72,8 @@ Vk_Device_Caps :: struct {
     api_version:                u32,
     supports_timestamp_queries: bool,
     timestamp_period:           f32,
+    framebuffer_sample_counts: vk.SampleCountFlags,
+    supports_min_depth_resolve: bool,
     swapchain_format:           vk.Format,
     present_mode:               vk.PresentModeKHR,
     swapchain_extent:           vk.Extent2D,
@@ -170,8 +172,6 @@ Vk_Context :: struct {
     capture_enabled:                 bool,
     vsync_enabled:                   bool,
     supports_debug_utils:            bool,
-    debug_acquire_log_count:         u32,
-    debug_present_log_count:         u32,
 }
 
 vk_record_device_loss :: proc(ctx: ^Vk_Context, stage: string) {
@@ -218,7 +218,7 @@ vk_context_init :: proc(
     ctx.capture_enabled = capture_enabled
     ctx.vsync_enabled = vsync_enabled
     log_info(
-        "vk_context_init: requested_size=",
+        "requested_size=",
         width,
         "x",
         height,
@@ -229,7 +229,7 @@ vk_context_init :: proc(
     )
 
     if !sdl.Vulkan_LoadLibrary(nil) {
-        log_error("vk_context_init: SDL Vulkan_LoadLibrary failed")
+        log_error("Vulkan library load failed")
         ctx.caps = vk_make_placeholder_caps(configured_ceiling_fraction)
         write_fixed_string(ctx.caps.adapter_name[:], "SDL could not load Vulkan library")
         return false
@@ -237,7 +237,7 @@ vk_context_init :: proc(
 
     vk.load_proc_addresses(cast(rawptr)sdl.Vulkan_GetVkGetInstanceProcAddr())
     if vk.CreateInstance == nil {
-        log_error("vk_context_init: vkCreateInstance unavailable after loading proc addresses")
+        log_error("instance creation unavailable after loading procedure addresses")
         ctx.caps = vk_make_placeholder_caps(configured_ceiling_fraction)
         write_fixed_string(ctx.caps.adapter_name[:], "vkCreateInstance unavailable")
         return false
@@ -248,33 +248,33 @@ vk_context_init :: proc(
        loader_version < vk_make_version(1, 3, 0) {
         ctx.caps = vk_make_placeholder_caps(configured_ceiling_fraction)
         write_fixed_string(ctx.caps.adapter_name[:], "Vulkan 1.3 loader is required")
-        log_error("vk_context_init: Vulkan 1.3 loader is required; reported version=", loader_version)
+        log_error("Vulkan 1.3 loader is required; reported version=", loader_version)
         return false
     }
 
     if !vk_create_instance(ctx) {
-        log_error("vk_context_init: vk_create_instance failed")
+        log_error("instance creation failed")
         return false
     }
     vk.load_proc_addresses(ctx.instance)
 
     if !sdl.Vulkan_CreateSurface(window, ctx.instance, nil, &ctx.surface) {
-        log_error("vk_context_init: SDL Vulkan_CreateSurface failed: ", sdl.GetError())
+        log_error("surface creation failed: ", sdl.GetError())
         return false
     }
 
     if !vk_pick_physical_device(ctx, configured_ceiling_fraction) {
-        log_error("vk_context_init: vk_pick_physical_device failed")
+        log_error("physical device selection failed")
         return false
     }
     log_info(
-        "vk_context_init: selected device=",
+        "selected device=",
         fixed_string(ctx.caps.adapter_name[:]),
         " type=",
         fixed_string(ctx.caps.adapter_type[:]),
     )
-    log_debug(
-        "vk_context_init: queues graphics=",
+    spy.debug(
+        "queues graphics=",
         ctx.caps.queue_families.graphics,
         " compute=",
         ctx.caps.queue_families.compute,
@@ -282,7 +282,7 @@ vk_context_init :: proc(
         ctx.caps.queue_families.present,
     )
     if !vk_create_logical_device(ctx) {
-        log_error("vk_context_init: vk_create_logical_device failed")
+        log_error("logical device creation failed")
         return false
     }
     vk.load_proc_addresses(ctx.device)
@@ -299,20 +299,20 @@ vk_context_init :: proc(
     vk_set_debug_name(ctx, .QUEUE, u64(uintptr(ctx.present_queue)), "Vulkan present queue")
 
     if !vk_create_swapchain(ctx, width, height) {
-        log_error("vk_context_init: vk_create_swapchain failed")
+        log_error("swapchain creation failed")
         return false
     }
     if !vk_create_frame_resources(ctx) {
-        log_error("vk_context_init: vk_create_frame_resources failed")
+        log_error("frame resource creation failed")
         return false
     }
     if !gpu_profiler_init(ctx) {
-        log_error("vk_context_init: gpu_profiler_init failed")
+        log_error("GPU profiler initialization failed")
         return false
     }
 
     ctx.initialized = true
-    log_info("vk_context_init: complete")
+    spy.debug("ready")
     return true
 }
 

@@ -1,0 +1,4 @@
+[lib]
+
+[odin]
+platforms = ["windows"]

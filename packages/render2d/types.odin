@@ -74,6 +74,9 @@ World_Post_Context :: struct {
     source_extent:    [2]u32,
     composite_extent: [2]u32,
     target_extent:    [2]u32,
+    pass_index:       u32,
+    pass_count:       u32,
+    pass_parameters:  [4]f32,
 }
 
 Renderer_Descriptor :: struct {

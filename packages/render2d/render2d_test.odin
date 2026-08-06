@@ -100,6 +100,9 @@ world_post_callback_receives_all_extents :: proc(t: ^testing.T) {
         source_extent    = {854, 480},
         composite_extent = {1280, 720},
         target_extent    = {1440, 900},
+        pass_index       = 1,
+        pass_count       = 3,
+        pass_parameters  = {1, 2, 3, 4},
     }
     testing.expect(t, descriptor.encode_world_post_push(payload[:], ctx, descriptor.user_data))
     testing.expect(t, state.called)

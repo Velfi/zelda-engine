@@ -120,7 +120,7 @@ batch_push_constants :: #force_inline proc(batch: ^Batch) -> Push {
     return push
 }
 
-world_post_push_constants :: proc(source, composite, target: vk.Extent2D) -> Push {
+world_post_push_constants :: proc(source, composite, target: vk.Extent2D, pass_index: int = 0, pass_count: int = 1) -> Push {
     push := Push{}
     if state.renderer_descriptor.encode_world_post_push != nil {
         destination := mem.slice_ptr(cast([^]u8)&push, size_of(Push))
@@ -128,6 +128,11 @@ world_post_push_constants :: proc(source, composite, target: vk.Extent2D) -> Pus
             source_extent    = {source.width, source.height},
             composite_extent = {composite.width, composite.height},
             target_extent    = {target.width, target.height},
+            pass_index       = u32(pass_index),
+            pass_count       = u32(pass_count),
+        }
+        if pass_index >= 0 && pass_index < state.world_post_pass_count {
+            post_context.pass_parameters = state.world_post_passes[pass_index].parameters
         }
         _ = state.renderer_descriptor.encode_world_post_push(
             destination,
@@ -168,10 +173,10 @@ resolve_hdr_scene :: proc(ctx: ^engine.Vk_Context, frame: engine.Vk_Frame, exten
     vk.CmdBindDescriptorSets(
         frame.command_buffer,
         .GRAPHICS,
-        state.pipeline_layout,
+        state.post_pipeline_layout,
         0,
         1,
-        &state.descriptors[MAX_TEXTURES - 1],
+        &state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR],
         0,
         nil,
     )
@@ -182,7 +187,7 @@ resolve_hdr_scene :: proc(ctx: ^engine.Vk_Context, frame: engine.Vk_Frame, exten
     }
     vk.CmdPushConstants(
         frame.command_buffer,
-        state.pipeline_layout,
+        state.post_pipeline_layout,
         {.VERTEX, .FRAGMENT},
         0,
         u32(size_of(post_push)),
@@ -269,6 +274,152 @@ record_screenshot_readback :: proc(
     return do_capture, marker
 }
 
+record_world_mask_pass :: proc(
+    ctx: ^engine.Vk_Context,
+    frame: engine.Vk_Frame,
+    extent: vk.Extent2D,
+    logical_extent: [2]i32,
+) {
+    if state.world_mask_pass == nil || !state.world_mask_active do return
+    msaa_active := state.world_sample_count_effective > 1
+    samples: vk.SampleCountFlags = {._1}
+    if state.world_sample_count_effective == 2 do samples = {._2}
+    if state.world_sample_count_effective == 4 do samples = {._4}
+    color_target := msaa_active ? &state.world_msaa_mask : &state.world_mask
+    color_target_ready := !msaa_active && state.world_mask_sample_ready
+    old_layout := color_target_ready ? vk.ImageLayout.SHADER_READ_ONLY_OPTIMAL : vk.ImageLayout.UNDEFINED
+    engine.vk_cmd_image_barrier2(
+        ctx,
+        frame.command_buffer,
+        color_target.image,
+        color_target_ready ? vk.PipelineStageFlags2{.FRAGMENT_SHADER} : vk.PipelineStageFlags2{.TOP_OF_PIPE},
+        {.COLOR_ATTACHMENT_OUTPUT},
+        color_target_ready ? vk.AccessFlags2{.SHADER_READ} : vk.AccessFlags2{},
+        {.COLOR_ATTACHMENT_WRITE},
+        old_layout,
+        .COLOR_ATTACHMENT_OPTIMAL,
+    )
+    if msaa_active {
+        engine.vk_cmd_image_barrier2(
+            ctx,
+            frame.command_buffer,
+            state.world_mask.image,
+            state.world_mask_sample_ready ? vk.PipelineStageFlags2{.FRAGMENT_SHADER} : vk.PipelineStageFlags2{.TOP_OF_PIPE},
+            {.COLOR_ATTACHMENT_OUTPUT},
+            state.world_mask_sample_ready ? vk.AccessFlags2{.SHADER_READ} : vk.AccessFlags2{},
+            {.COLOR_ATTACHMENT_WRITE},
+            state.world_mask_sample_ready ? vk.ImageLayout.SHADER_READ_ONLY_OPTIMAL : vk.ImageLayout.UNDEFINED,
+            .COLOR_ATTACHMENT_OPTIMAL,
+        )
+    }
+    clear := vk.ClearValue{color = {float32 = {0, 0, 0, 0}}}
+    color_attachment := vk.RenderingAttachmentInfo {
+        sType = .RENDERING_ATTACHMENT_INFO,
+        imageView = color_target.view,
+        imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
+        loadOp = .CLEAR,
+        storeOp = .STORE,
+        clearValue = clear,
+    }
+    if msaa_active {
+        color_attachment.resolveMode = {.AVERAGE}
+        color_attachment.resolveImageView = state.world_mask.view
+        color_attachment.resolveImageLayout = .COLOR_ATTACHMENT_OPTIMAL
+    }
+    depth_attachment := vk.RenderingAttachmentInfo {
+        sType = .RENDERING_ATTACHMENT_INFO,
+        imageView = msaa_active ? state.world_msaa_depth.view : state.depth.view,
+        imageLayout = .DEPTH_ATTACHMENT_OPTIMAL,
+        loadOp = .LOAD,
+        storeOp = .STORE,
+    }
+    rendering := vk.RenderingInfo {
+        sType = .RENDERING_INFO,
+        renderArea = {extent = extent},
+        layerCount = 1,
+        colorAttachmentCount = 1,
+        pColorAttachments = &color_attachment,
+        pDepthAttachment = &depth_attachment,
+    }
+    vk.CmdBeginRendering(frame.command_buffer, &rendering)
+    mask_context := World_Mask_Pass_Context {
+        ctx = ctx,
+        frame = frame,
+        color_view = color_target.view,
+        color_format = .R8_UNORM,
+        depth_view = depth_attachment.imageView,
+        framebuffer_extent = extent,
+        logical_extent = logical_extent,
+        sample_count = samples,
+    }
+    state.world_mask_pass(&mask_context, state.world_mask_pass_user_data)
+    vk.CmdEndRendering(frame.command_buffer)
+    engine.vk_cmd_image_barrier2(
+        ctx,
+        frame.command_buffer,
+        state.world_mask.image,
+        {.COLOR_ATTACHMENT_OUTPUT},
+        {.FRAGMENT_SHADER},
+        {.COLOR_ATTACHMENT_WRITE},
+        {.SHADER_READ},
+        .COLOR_ATTACHMENT_OPTIMAL,
+        .SHADER_READ_ONLY_OPTIMAL,
+    )
+    state.world_mask_sample_ready = true
+}
+
+record_world_post_chain :: proc(ctx: ^engine.Vk_Context, frame: engine.Vk_Frame, source_extent, swap_extent: vk.Extent2D, clear: vk.ClearValue) {
+    pass_count := max(state.world_post_pass_count, 1)
+    source := &state.world_scene
+    current_extent := source_extent
+    for pass_index in 0 ..< pass_count - 1 {
+        ping_index := pass_index & 1
+        target := &state.world_post_ping[ping_index]
+        target_extent := vk.Extent2D{target.width, target.height}
+        old_layout := state.world_post_ping_sample_ready[ping_index] ? vk.ImageLayout.SHADER_READ_ONLY_OPTIMAL : vk.ImageLayout.UNDEFINED
+        engine.vk_cmd_image_barrier2(ctx, frame.command_buffer, target.image, {.FRAGMENT_SHADER}, {.COLOR_ATTACHMENT_OUTPUT}, {.SHADER_READ}, {.COLOR_ATTACHMENT_WRITE}, old_layout, .COLOR_ATTACHMENT_OPTIMAL)
+        engine.vk_cmd_begin_rendering(ctx, frame.command_buffer, target.view, target_extent, .COLOR_ATTACHMENT_OPTIMAL, .CLEAR, .STORE, clear)
+        viewport := vk.Viewport{width = f32(target_extent.width), height = f32(target_extent.height), minDepth = 0, maxDepth = 1}
+        scissor := vk.Rect2D{extent = target_extent}
+        vk.CmdSetViewport(frame.command_buffer, 0, 1, &viewport)
+        vk.CmdSetScissor(frame.command_buffer, 0, 1, &scissor)
+        descriptor_index := WORLD_POST_PING_DESCRIPTOR_BASE + ping_index
+        update_world_post_descriptor(descriptor_index, source, &state.world_scene)
+        vk.CmdBindPipeline(frame.command_buffer, .GRAPHICS, state.post_pipeline)
+        vk.CmdBindDescriptorSets(frame.command_buffer, .GRAPHICS, state.post_pipeline_layout, 0, 1, &state.post_descriptors[descriptor_index], 0, nil)
+        push := world_post_push_constants(current_extent, target_extent, target_extent, pass_index, pass_count)
+        vk.CmdPushConstants(frame.command_buffer, state.post_pipeline_layout, {.VERTEX, .FRAGMENT}, 0, u32(size_of(push)), &push)
+        vk.CmdDraw(frame.command_buffer, 3, 1, 0, 0)
+        engine.vk_cmd_end_swapchain_render_pass(frame)
+        engine.vk_cmd_image_barrier2(ctx, frame.command_buffer, target.image, {.COLOR_ATTACHMENT_OUTPUT}, {.FRAGMENT_SHADER}, {.COLOR_ATTACHMENT_WRITE}, {.SHADER_READ}, .COLOR_ATTACHMENT_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL)
+        state.world_post_ping_sample_ready[ping_index] = true
+        source = target
+        current_extent = target_extent
+    }
+
+    engine.vk_cmd_begin_rendering(ctx, frame.command_buffer, ctx.swapchain_image_views[frame.image_index], swap_extent, .COLOR_ATTACHMENT_OPTIMAL, .CLEAR, .STORE, clear)
+    window_aspect := f32(swap_extent.width) / f32(max(swap_extent.height, 1))
+    world_aspect := f32(source_extent.width) / f32(max(source_extent.height, 1))
+    composite_width, composite_height := f32(swap_extent.width), f32(swap_extent.height)
+    if window_aspect > world_aspect do composite_width = composite_height * world_aspect
+    if window_aspect <= world_aspect do composite_height = composite_width / world_aspect
+    viewport := vk.Viewport{x = (f32(swap_extent.width) - composite_width) * .5, y = (f32(swap_extent.height) - composite_height) * .5, width = composite_width, height = composite_height, minDepth = 0, maxDepth = 1}
+    scissor := vk.Rect2D{offset = {i32(viewport.x), i32(viewport.y)}, extent = {u32(composite_width), u32(composite_height)}}
+    vk.CmdSetViewport(frame.command_buffer, 0, 1, &viewport)
+    vk.CmdSetScissor(frame.command_buffer, 0, 1, &scissor)
+    descriptor_index := WORLD_POST_SCENE_DESCRIPTOR
+    if pass_count > 1 {
+        update_world_post_descriptor(descriptor_index, source, &state.world_scene)
+    }
+    vk.CmdBindPipeline(frame.command_buffer, .GRAPHICS, state.post_pipeline)
+    vk.CmdBindDescriptorSets(frame.command_buffer, .GRAPHICS, state.post_pipeline_layout, 0, 1, &state.post_descriptors[descriptor_index], 0, nil)
+    composite_extent := vk.Extent2D{u32(composite_width), u32(composite_height)}
+    push := world_post_push_constants(current_extent, composite_extent, swap_extent, pass_count - 1, pass_count)
+    vk.CmdPushConstants(frame.command_buffer, state.post_pipeline_layout, {.VERTEX, .FRAGMENT}, 0, u32(size_of(push)), &push)
+    vk.CmdDraw(frame.command_buffer, 3, 1, 0, 0)
+    engine.vk_cmd_end_swapchain_render_pass(frame)
+}
+
 publish_screenshot_readback :: proc(
     ctx: ^engine.Vk_Context,
     extent: vk.Extent2D,
@@ -343,7 +494,21 @@ EndDrawing :: proc() {
                0 { if engine.vk_recreate_swapchain(ctx, w, h) && state.world_pass != nil do _ = ensure_depth_attachment() }
         return}
     if state.world_pass != nil && !ensure_depth_attachment() do return
+    if state.world_pass != nil && !ensure_world_mask_attachment() do return
     if state.world_pass != nil && !ensure_world_scene() do return
+    if world_resolve_configured && state.world_post_pass_count > 1 {
+        source_extent := world_scene_extent()
+        intermediate_count := min(state.world_post_pass_count - 1, 2)
+        for index in 0 ..< intermediate_count {
+            target_extent := world_post_resolution_extent(source_extent, state.world_post_passes[index].resolution)
+            if !ensure_world_post_ping(index, target_extent) do return
+        }
+    }
+    world_extent := ctx.swapchain_extent
+    if fixed_world_configured do world_extent = {state.world_render_width, state.world_render_height}
+    world_color_format := world_resolve_configured ? ctx.swapchain_format : (hdr_active ? vk.Format.R16G16B16A16_SFLOAT : ctx.swapchain_format)
+    if state.world_pass != nil && !ensure_world_msaa_color(world_extent, world_color_format) do return
+    msaa_active := state.world_sample_count_effective > 1
     acquire_marker := gfx_profile_begin(.Acquire_Frame)
     frame, ok := engine.vk_begin_frame(ctx)
     gfx_profile_end(.Acquire_Frame, acquire_marker)
@@ -353,9 +518,7 @@ EndDrawing :: proc() {
     if detailed_gfx do frame_setup_marker = gfx_profile_begin(.Frame_Setup)
     upload_dynamic_textures(ctx, frame)
     extent := ctx.swapchain_extent
-    world_extent := extent
     world_resolve := world_resolve_configured
-    if fixed_world_configured do world_extent = {state.world_render_width, state.world_render_height}
     image := ctx.swapchain_images[frame.image_index]
     swapchain_old_layout := vk.ImageLayout.PRESENT_SRC_KHR
     if !ctx.swapchain_image_initialized[frame.image_index] {
@@ -377,7 +540,11 @@ EndDrawing :: proc() {
         depth_src_stage := vk.PipelineStageFlags2{.TOP_OF_PIPE}
         depth_src_access := vk.AccessFlags2{}
         depth_old_layout := vk.ImageLayout.UNDEFINED
-        if state.depth_initialized {
+        if state.depth_sample_ready {
+            depth_src_stage = {.FRAGMENT_SHADER}
+            depth_src_access = {.SHADER_READ}
+            depth_old_layout = .SHADER_READ_ONLY_OPTIMAL
+        } else if state.depth_initialized {
             depth_src_stage = {.LATE_FRAGMENT_TESTS}
             depth_src_access = {.DEPTH_STENCIL_ATTACHMENT_WRITE}
             depth_old_layout = .DEPTH_ATTACHMENT_OPTIMAL
@@ -394,7 +561,34 @@ EndDrawing :: proc() {
             .DEPTH_ATTACHMENT_OPTIMAL,
             {.DEPTH},
         )
+        if msaa_active {
+            engine.vk_cmd_image_barrier2(
+                ctx,
+                frame.command_buffer,
+                state.world_msaa_depth.image,
+                state.depth_initialized ? vk.PipelineStageFlags2{.LATE_FRAGMENT_TESTS} : vk.PipelineStageFlags2{.TOP_OF_PIPE},
+                {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
+                state.depth_initialized ? vk.AccessFlags2{.DEPTH_STENCIL_ATTACHMENT_WRITE} : vk.AccessFlags2{},
+                {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+                state.depth_initialized ? vk.ImageLayout.DEPTH_ATTACHMENT_OPTIMAL : vk.ImageLayout.UNDEFINED,
+                .DEPTH_ATTACHMENT_OPTIMAL,
+                {.DEPTH},
+            )
+            engine.vk_cmd_image_barrier2(
+                ctx,
+                frame.command_buffer,
+                state.world_msaa_color.image,
+                state.world_msaa_color_initialized ? vk.PipelineStageFlags2{.COLOR_ATTACHMENT_OUTPUT} : vk.PipelineStageFlags2{.TOP_OF_PIPE},
+                {.COLOR_ATTACHMENT_OUTPUT},
+                state.world_msaa_color_initialized ? vk.AccessFlags2{.COLOR_ATTACHMENT_WRITE} : vk.AccessFlags2{},
+                {.COLOR_ATTACHMENT_WRITE},
+                state.world_msaa_color_initialized ? vk.ImageLayout.COLOR_ATTACHMENT_OPTIMAL : vk.ImageLayout.UNDEFINED,
+                .COLOR_ATTACHMENT_OPTIMAL,
+            )
+            state.world_msaa_color_initialized = true
+        }
         state.depth_initialized = true
+        state.depth_sample_ready = false
     }
     if world_resolve {
         engine.vk_cmd_image_barrier2(
@@ -424,19 +618,29 @@ EndDrawing :: proc() {
     if hdr_active do engine.vk_cmd_image_barrier2(ctx, frame.command_buffer, state.hdr_scene.image, {.TOP_OF_PIPE}, {.COLOR_ATTACHMENT_OUTPUT}, {}, {.COLOR_ATTACHMENT_WRITE}, .UNDEFINED, .COLOR_ATTACHMENT_OPTIMAL)
     color_attachment := vk.RenderingAttachmentInfo {
         sType       = .RENDERING_ATTACHMENT_INFO,
-        imageView   = world_resolve ? state.world_scene.view : (hdr_active ? state.hdr_scene.view : ctx.swapchain_image_views[frame.image_index]),
+        imageView   = msaa_active ? state.world_msaa_color.view : (world_resolve ? state.world_scene.view : (hdr_active ? state.hdr_scene.view : ctx.swapchain_image_views[frame.image_index])),
         imageLayout = .COLOR_ATTACHMENT_OPTIMAL,
         loadOp      = .CLEAR,
         storeOp     = .STORE,
         clearValue  = color_clear,
     }
+    if msaa_active {
+        color_attachment.resolveMode = {.AVERAGE}
+        color_attachment.resolveImageView = world_resolve ? state.world_scene.view : (hdr_active ? state.hdr_scene.view : ctx.swapchain_image_views[frame.image_index])
+        color_attachment.resolveImageLayout = .COLOR_ATTACHMENT_OPTIMAL
+    }
     depth_attachment := vk.RenderingAttachmentInfo {
         sType       = .RENDERING_ATTACHMENT_INFO,
-        imageView   = state.depth.view,
+        imageView   = msaa_active ? state.world_msaa_depth.view : state.depth.view,
         imageLayout = .DEPTH_ATTACHMENT_OPTIMAL,
         loadOp      = .CLEAR,
-        storeOp     = .DONT_CARE,
+        storeOp     = .STORE,
         clearValue  = depth_clear,
+    }
+    if msaa_active {
+        depth_attachment.resolveMode = {.MIN}
+        depth_attachment.resolveImageView = state.depth.view
+        depth_attachment.resolveImageLayout = .DEPTH_ATTACHMENT_OPTIMAL
     }
     rendering := vk.RenderingInfo {
         sType = .RENDERING_INFO,
@@ -452,10 +656,11 @@ EndDrawing :: proc() {
         ctx                = ctx,
         frame              = frame,
         color_view         = color_attachment.imageView,
-        color_format       = world_resolve ? ctx.swapchain_format : (hdr_active ? vk.Format.R16G16B16A16_SFLOAT : ctx.swapchain_format),
-        depth_view         = state.depth.view,
+        color_format       = world_color_format,
+        depth_view         = depth_attachment.imageView,
         framebuffer_extent = world_extent,
         logical_extent     = {state.width, state.height},
+        sample_count       = msaa_active ? (state.world_sample_count_effective == 4 ? vk.SampleCountFlags{._4} : vk.SampleCountFlags{._2}) : vk.SampleCountFlags{._1},
     }
     if detailed_gfx do gfx_profile_end(.Frame_Setup, frame_setup_marker)
     if state.world_pre_pass != nil {
@@ -469,6 +674,20 @@ EndDrawing :: proc() {
     gfx_profile_end(.World_Pass, world_marker)
     vk.CmdEndRendering(frame.command_buffer)
     if world_resolve {
+        record_world_mask_pass(ctx, frame, world_extent, {state.width, state.height})
+        engine.vk_cmd_image_barrier2(
+            ctx,
+            frame.command_buffer,
+            state.depth.image,
+            {.LATE_FRAGMENT_TESTS},
+            {.FRAGMENT_SHADER},
+            {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+            {.SHADER_READ},
+            .DEPTH_ATTACHMENT_OPTIMAL,
+            .SHADER_READ_ONLY_OPTIMAL,
+            {.DEPTH},
+        )
+        state.depth_sample_ready = true
         composite_marker: u64
         if detailed_gfx do composite_marker = gfx_profile_begin(.World_Composite)
         engine.vk_cmd_image_barrier2(
@@ -483,61 +702,7 @@ EndDrawing :: proc() {
             .SHADER_READ_ONLY_OPTIMAL,
         )
         state.world_scene_sample_ready = true
-        engine.vk_cmd_begin_rendering(
-            ctx,
-            frame.command_buffer,
-            ctx.swapchain_image_views[frame.image_index],
-            extent,
-            .COLOR_ATTACHMENT_OPTIMAL,
-            .CLEAR,
-            .STORE,
-            color_clear,
-        )
-        window_aspect := f32(extent.width) / f32(max(extent.height, 1))
-        world_aspect := f32(world_extent.width) / f32(max(world_extent.height, 1))
-        composite_width, composite_height := f32(extent.width), f32(extent.height)
-        if window_aspect > world_aspect {
-            composite_width = composite_height * world_aspect
-        } else {
-            composite_height = composite_width / world_aspect
-        }
-        viewport := vk.Viewport {
-            x        = (f32(extent.width) - composite_width) * .5,
-            y        = (f32(extent.height) - composite_height) * .5,
-            width    = composite_width,
-            height   = composite_height,
-            minDepth = 0,
-            maxDepth = 1,
-        }
-        scissor := vk.Rect2D {
-            offset = {i32(viewport.x), i32(viewport.y)},
-            extent = {u32(composite_width), u32(composite_height)},
-        }
-        vk.CmdSetViewport(frame.command_buffer, 0, 1, &viewport)
-        vk.CmdSetScissor(frame.command_buffer, 0, 1, &scissor)
-        vk.CmdBindPipeline(frame.command_buffer, .GRAPHICS, state.post_pipeline)
-        vk.CmdBindDescriptorSets(
-            frame.command_buffer,
-            .GRAPHICS,
-            state.pipeline_layout,
-            0,
-            1,
-            &state.descriptors[MAX_TEXTURES - 2],
-            0,
-            nil,
-        )
-        composite_extent := vk.Extent2D{u32(composite_width), u32(composite_height)}
-        post_push := world_post_push_constants(world_extent, composite_extent, extent)
-        vk.CmdPushConstants(
-            frame.command_buffer,
-            state.pipeline_layout,
-            {.VERTEX, .FRAGMENT},
-            0,
-            u32(size_of(post_push)),
-            &post_push,
-        )
-        vk.CmdDraw(frame.command_buffer, 3, 1, 0, 0)
-        engine.vk_cmd_end_swapchain_render_pass(frame)
+        record_world_post_chain(ctx, frame, world_extent, extent, color_clear)
         if detailed_gfx do gfx_profile_end(.World_Composite, composite_marker)
     }
     engine.vk_cmd_image_barrier2(
@@ -600,10 +765,10 @@ EndDrawing :: proc() {
         vk.CmdBindDescriptorSets(
             frame.command_buffer,
             .GRAPHICS,
-            state.pipeline_layout,
+            state.ui_pipeline_layout,
             0,
             1,
-            &state.descriptors[0],
+            &state.texture_descriptors[0],
             0,
             nil,
         )
@@ -618,11 +783,11 @@ EndDrawing :: proc() {
             }
             batch_scissor := batch_scissor_rect(batch, extent)
             vk.CmdSetScissor(frame.command_buffer, 0, 1, &batch_scissor)
-            if batch.texture >= 0 do vk.CmdBindDescriptorSets(frame.command_buffer, .GRAPHICS, state.pipeline_layout, 0, 1, &state.descriptors[batch.texture], 0, nil)
+            if batch.texture >= 0 do vk.CmdBindDescriptorSets(frame.command_buffer, .GRAPHICS, state.ui_pipeline_layout, 0, 1, &state.texture_descriptors[batch.texture], 0, nil)
             push := batch_push_constants(&batch)
             vk.CmdPushConstants(
                 frame.command_buffer,
-                state.pipeline_layout,
+                state.ui_pipeline_layout,
                 {.VERTEX, .FRAGMENT},
                 0,
                 u32(size_of(push)),

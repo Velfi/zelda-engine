@@ -163,7 +163,7 @@ depth_create :: proc(
         width,
         height,
         .D32_SFLOAT,
-        {.DEPTH_STENCIL_ATTACHMENT},
+        {.DEPTH_STENCIL_ATTACHMENT, .SAMPLED},
         {.DEPTH},
         samples,
         out,

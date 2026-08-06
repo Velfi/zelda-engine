@@ -96,6 +96,13 @@ sdl_input_begin_frame :: proc(input: ^SDL_Input_State) {
     input.keys_pressed = {}
     input.gamepad_pressed = {}
     input.resize_requested = false
+    // SDL events provide press/release edges, but a held button may have no
+    // subsequent event. Sample the authoritative state every frame so tools
+    // that paint or drag continue between motion events.
+    buttons := sdl.GetMouseState(&input.mouse.x, &input.mouse.y)
+    input.mouse_down[0] = .LEFT in buttons
+    input.mouse_down[1] = .MIDDLE in buttons
+    input.mouse_down[2] = .RIGHT in buttons
 }
 
 sdl_mouse_button_index :: proc(button: u8) -> int {
