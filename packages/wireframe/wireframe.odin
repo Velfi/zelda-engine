@@ -1,14 +1,9 @@
 package wireframe
 
-import "core:math"
 import "core:math/linalg"
 
-Color :: struct {
-    r, g, b: u8,
-}
-Color_Float :: struct {
-    r, g, b: f32,
-}
+Color :: [3]u8
+Color_Float :: [3]f32
 Vertex :: struct {
     position: [3]f32,
     color:    Color_Float,

@@ -1,5 +1,3 @@
 package zelda_math
 
-Vec2 :: struct {
-    x, y: f32,
-}
+Vec2 :: [2]f32

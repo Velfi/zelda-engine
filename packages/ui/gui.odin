@@ -35,9 +35,7 @@ Rect :: struct {
     x, y, w, h: f32,
 }
 
-Color :: struct {
-    r, g, b, a: f32,
-}
+Color :: [4]f32
 
 Hsv_Color :: struct {
     h, s, v, a: f32,

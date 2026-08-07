@@ -3,17 +3,13 @@ package render2d
 // Product-neutral data shared by renderer implementations and consumers.
 // Serializable visual presets and effect-specific payloads belong to consumers.
 
-Vector2 :: struct {
-    x, y: f32,
-}
+Vector2 :: [2]f32
 
 Rectangle :: struct {
     x, y, width, height: f32,
 }
 
-Color :: struct {
-    r, g, b, a: u8,
-}
+Color :: [4]u8
 
 Texture :: struct {
     id:            int,
