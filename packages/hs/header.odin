@@ -25,13 +25,8 @@ get_typeinfo_base :: #force_inline proc(header: ^SaveHeader, handle: TypeInfo_Ha
     }
     return base, true
 }
-get_typeinfo_ptr :: #force_inline proc(
-    header: ^SaveHeader,
-    handle: TypeInfo_Handle,
-) -> (
-    ptr: ^TypeInfo,
-    ok: bool,
-) #no_bounds_check {
+get_typeinfo_ptr :: #force_inline proc(header: ^SaveHeader, handle: TypeInfo_Handle) -> (ptr: ^TypeInfo, ok: bool) \
+#no_bounds_check {
     return &header.types[int(handle) - 1], true
 }
 // #+vet redundancy public-api

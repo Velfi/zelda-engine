@@ -23,12 +23,7 @@ unicode_editing_never_inserts_half_a_grapheme :: proc(t: ^testing.T) {
     buffer: [4]u8
     length := 0
     inserted_text: string = "e\u0301x"
-    changed := gui_text_edit_insert_bytes(
-        &ctx,
-        buffer[:],
-        &length,
-        transmute([]u8)inserted_text,
-    )
+    changed := gui_text_edit_insert_bytes(&ctx, buffer[:], &length, transmute([]u8)inserted_text)
     testing.expect(t, changed)
     testing.expect_value(t, length, 4)
 
@@ -37,14 +32,6 @@ unicode_editing_never_inserts_half_a_grapheme :: proc(t: ^testing.T) {
     ctx.text_edit_caret = 0
     ctx.text_edit_anchor = 0
     cluster_text: string = "e\u0301"
-    testing.expect(
-        t,
-        !gui_text_edit_insert_bytes(
-            &ctx,
-            short[:],
-            &short_length,
-            transmute([]u8)cluster_text,
-        ),
-    )
+    testing.expect(t, !gui_text_edit_insert_bytes(&ctx, short[:], &short_length, transmute([]u8)cluster_text))
     testing.expect_value(t, short_length, 0)
 }

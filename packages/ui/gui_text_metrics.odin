@@ -375,14 +375,16 @@ gui_font_rasterize_glyph :: proc(
     alpha: []u8,
     out: ^Gui_Raster_Glyph,
 ) -> int {
-    return int(vo_textshape_rasterize_glyph(
-        i32(face_id),
-        glyph_id,
-        i32(pixel_height),
-        len(alpha) > 0 ? raw_data(alpha) : nil,
-        i32(len(alpha)),
-        out,
-    ))
+    return int(
+        vo_textshape_rasterize_glyph(
+            i32(face_id),
+            glyph_id,
+            i32(pixel_height),
+            len(alpha) > 0 ? raw_data(alpha) : nil,
+            i32(len(alpha)),
+            out,
+        ),
+    )
 }
 
 gui_text_next_grapheme :: proc(bytes: []u8) -> int {
@@ -439,13 +441,16 @@ gui_font_ascii_glyph_bounds :: proc(
     if out == nil || !gui_text_shaper_ready || !gui_font_kind_ready(effective_font_kind) {
         return false
     }
-    return vo_textshape_ascii_glyph_bounds(
-        i32(effective_font_kind),
-        i32(glyph_first),
-        i32(glyph_last),
-        i32(pixel_height),
-        out,
-    ) != 0
+    return(
+        vo_textshape_ascii_glyph_bounds(
+            i32(effective_font_kind),
+            i32(glyph_first),
+            i32(glyph_last),
+            i32(pixel_height),
+            out,
+        ) !=
+        0 \
+    )
 }
 
 gui_font_metrics :: proc(font_kind: Gui_Font_Kind, pixel_height: int, out: ^Gui_Font_Metrics) -> bool {

@@ -1,8 +1,8 @@
 package canvas2d
 
+import "core:fmt"
 import "core:image"
 import _ "core:image/png"
-import "core:fmt"
 import "core:math"
 import "core:mem"
 import "core:os"
@@ -275,11 +275,7 @@ MeasureFontMetrics :: proc(font: Font, size: f32) -> Font_Metrics {
     if metrics.ascent <= 0 || metrics.descent < 0 {
         metrics = {.82, .18, 0}
     }
-    return {
-        ascent = metrics.ascent * size,
-        descent = metrics.descent * size,
-        line_gap = metrics.line_gap * size,
-    }
+    return {ascent = metrics.ascent * size, descent = metrics.descent * size, line_gap = metrics.line_gap * size}
 }
 
 TextBlockCenteredY :: proc(font: Font, bounds: Rectangle, size, line_height: f32, line_count: int) -> f32 {
@@ -293,12 +289,7 @@ TextBlockCenteredY :: proc(font: Font, bounds: Rectangle, size, line_height: f32
     draw_baseline_offset := size * .82
     return bounds.y + (bounds.height - block_height) * .5 + baseline_in_line - draw_baseline_offset
 }
-MeasureTextExDirection :: proc(
-    font: Font,
-    text: cstring,
-    size, spacing: f32,
-    direction: Text_Direction,
-) -> Vector2 {
+MeasureTextExDirection :: proc(font: Font, text: cstring, size, spacing: f32, direction: Text_Direction) -> Vector2 {
     value := string(text)
     if len(value) == 0 do return {0, max(size, f32(32))}
     shaped := make([]ui.Gui_Shaped_Glyph, len(value), context.temp_allocator)
@@ -358,7 +349,7 @@ DrawTextExDirection :: proc(
                 f32((col + 1) * state.font_cell_width) / f32(state.texture_width),
                 f32((row + 1) * state.font_cell_height) / f32(state.texture_height),
             }
-            r := Rectangle{
+            r := Rectangle {
                 cursor - f32(state.font_origin_x) * scale,
                 position.y,
                 f32(state.font_cell_width) * scale,
@@ -376,16 +367,16 @@ DrawTextExDirection :: proc(
     for shaped_glyph in shaped[:count] {
         tier := glyph_tier_for_size(size)
         entry, cached := glyph_cache_load({
-            face_id = shaped_glyph.face_id,
-            tier = u16(tier),
+            face_id  = shaped_glyph.face_id,
+            tier     = u16(tier),
             glyph_id = shaped_glyph.glyph_id,
         })
         // Glyph zero is the selected face's deterministic monochrome
         // replacement outline when rasterization or allocation fails.
         if !cached && shaped_glyph.glyph_id != 0 {
             entry, cached = glyph_cache_load({
-                face_id = shaped_glyph.face_id,
-                tier = u16(tier),
+                face_id  = shaped_glyph.face_id,
+                tier     = u16(tier),
                 glyph_id = 0,
             })
         }
@@ -394,10 +385,7 @@ DrawTextExDirection :: proc(
             continue
         }
         page := state.glyph_pages[int(entry.page)]
-        uv0 := Vector2 {
-            f32(entry.x) / GLYPH_ATLAS_PAGE_SIZE,
-            f32(entry.y) / GLYPH_ATLAS_PAGE_SIZE,
-        }
+        uv0 := Vector2{f32(entry.x) / GLYPH_ATLAS_PAGE_SIZE, f32(entry.y) / GLYPH_ATLAS_PAGE_SIZE}
         uv1 := Vector2 {
             f32(entry.x + entry.width) / GLYPH_ATLAS_PAGE_SIZE,
             f32(entry.y + entry.height) / GLYPH_ATLAS_PAGE_SIZE,
@@ -467,9 +455,7 @@ text_wrapped_lines :: proc(
                         }
                         best = max(
                             forced,
-                            line_start + ui.gui_text_next_grapheme(
-                                transmute([]u8)value[line_start:paragraph_end],
-                            ),
+                            line_start + ui.gui_text_next_grapheme(transmute([]u8)value[line_start:paragraph_end]),
                         )
                         break
                     }
@@ -704,18 +690,15 @@ UpdateDynamicTextureRGBA :: proc(texture: Texture, pixels: []u8) -> bool {
 }
 
 create_dynamic_texture_r8 :: proc(width, height: int, pixels: []u8) -> Texture {
-    if state == nil || (!state.initialized && !state.backend_initializing) ||
-       width <= 0 || height <= 0 || len(pixels) < width * height {
+    if state == nil ||
+       (!state.initialized && !state.backend_initializing) ||
+       width <= 0 ||
+       height <= 0 ||
+       len(pixels) < width * height {
         return {}
     }
     loaded: resources.Image
-    if !resources.texture_upload_r8(
-        &state.ctx,
-        pixels,
-        width,
-        height,
-        &loaded,
-    ) {
+    if !resources.texture_upload_r8(&state.ctx, pixels, width, height, &loaded) {
         return {}
     }
     id, slot_ready := texture_slot_append()
@@ -725,16 +708,29 @@ create_dynamic_texture_r8 :: proc(width, height: int, pixels: []u8) -> Texture {
     }
     state.textures[id] = loaded
     texture := &state.textures[id]
-    ii := vk.DescriptorImageInfo{imageView = texture.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    si := vk.DescriptorImageInfo{sampler = texture.sampler}
+    ii := vk.DescriptorImageInfo {
+        imageView   = texture.view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    si := vk.DescriptorImageInfo {
+        sampler = texture.sampler,
+    }
     writes := [2]vk.WriteDescriptorSet {
         {
-            sType = .WRITE_DESCRIPTOR_SET, dstSet = state.texture_descriptors[id], dstBinding = 0,
-            descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &ii,
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.texture_descriptors[id],
+            dstBinding = 0,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &ii,
         },
         {
-            sType = .WRITE_DESCRIPTOR_SET, dstSet = state.texture_descriptors[id], dstBinding = 1,
-            descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &si,
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.texture_descriptors[id],
+            dstBinding = 1,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &si,
         },
     }
     vk.UpdateDescriptorSets(state.ctx.device, 2, raw_data(writes[:]), 0, nil)
@@ -756,8 +752,11 @@ create_dynamic_texture_r8 :: proc(width, height: int, pixels: []u8) -> Texture {
 }
 
 update_dynamic_texture_r8_region :: proc(texture: Texture, pixels: []u8, region: Rectangle) -> bool {
-    if !state.initialized || !texture.ready || texture.id <= 0 ||
-       texture.id >= state.texture_count || state.dynamic_bytes_per_pixel[texture.id] != 1 {
+    if !state.initialized ||
+       !texture.ready ||
+       texture.id <= 0 ||
+       texture.id >= state.texture_count ||
+       state.dynamic_bytes_per_pixel[texture.id] != 1 {
         return false
     }
     x := clamp(int(region.x), 0, texture.width)
@@ -883,27 +882,35 @@ ensure_depth_attachment :: proc() -> bool {
     } else if requested >= 2 && WorldSampleCountSupported(2) {
         effective = 2
     }
-    msaa_valid := effective == 1 ||
-        (state.world_msaa_depth.width == extent.width && state.world_msaa_depth.height == extent.height &&
-         state.world_msaa_depth.view != vk.ImageView(0) && state.world_sample_count_effective == effective)
+    msaa_valid :=
+        effective == 1 ||
+        (state.world_msaa_depth.width == extent.width &&
+                state.world_msaa_depth.height == extent.height &&
+                state.world_msaa_depth.view != vk.ImageView(0) &&
+                state.world_sample_count_effective == effective)
     if state.depth.width == extent.width && state.depth.height == extent.height && state.depth.view != vk.ImageView(0) && msaa_valid do return true
     replacement_depth, replacement_msaa_depth: resources.Image
     created := resources.depth_create(&state.ctx, extent.width, extent.height, &replacement_depth)
     if created {
         sampler_info := vk.SamplerCreateInfo {
-            sType = .SAMPLER_CREATE_INFO,
-            magFilter = .NEAREST,
-            minFilter = .NEAREST,
+            sType        = .SAMPLER_CREATE_INFO,
+            magFilter    = .NEAREST,
+            minFilter    = .NEAREST,
             addressModeU = .CLAMP_TO_EDGE,
             addressModeV = .CLAMP_TO_EDGE,
             addressModeW = .CLAMP_TO_EDGE,
-            maxLod = 0,
+            maxLod       = 0,
         }
         if vk.CreateSampler(state.ctx.device, &sampler_info, nil, &replacement_depth.sampler) != .SUCCESS {
             resources.image_destroy(&replacement_depth, &state.ctx)
             return false
         }
-        engine.vk_set_debug_name(&state.ctx, .SAMPLER, auto_cast replacement_depth.sampler, "canvas world depth sampler")
+        engine.vk_set_debug_name(
+            &state.ctx,
+            .SAMPLER,
+            auto_cast replacement_depth.sampler,
+            "canvas world depth sampler",
+        )
         if effective > 1 {
             samples := effective == 4 ? vk.SampleCountFlags{._4} : vk.SampleCountFlags{._2}
             if !resources.depth_create(&state.ctx, extent.width, extent.height, &replacement_msaa_depth, samples) {
@@ -936,11 +943,15 @@ ensure_world_mask_attachment :: proc() -> bool {
     if state.world_sample_count_effective == 2 do samples = {._2}
     if state.world_sample_count_effective == 4 do samples = {._4}
     msaa_required := state.world_sample_count_effective > 1
-    valid := state.world_mask.width == extent.width && state.world_mask.height == extent.height &&
+    valid :=
+        state.world_mask.width == extent.width &&
+        state.world_mask.height == extent.height &&
         state.world_mask.view != vk.ImageView(0)
-    msaa_valid := !msaa_required ||
-        (state.world_msaa_mask.width == extent.width && state.world_msaa_mask.height == extent.height &&
-         state.world_msaa_mask.view != vk.ImageView(0))
+    msaa_valid :=
+        !msaa_required ||
+        (state.world_msaa_mask.width == extent.width &&
+                state.world_msaa_mask.height == extent.height &&
+                state.world_msaa_mask.view != vk.ImageView(0))
     if valid && msaa_valid do return true
 
     mask, msaa_mask: resources.Image
@@ -958,30 +969,31 @@ ensure_world_mask_attachment :: proc() -> bool {
         return false
     }
     sampler_info := vk.SamplerCreateInfo {
-        sType = .SAMPLER_CREATE_INFO,
-        magFilter = .NEAREST,
-        minFilter = .NEAREST,
+        sType        = .SAMPLER_CREATE_INFO,
+        magFilter    = .NEAREST,
+        minFilter    = .NEAREST,
         addressModeU = .CLAMP_TO_EDGE,
         addressModeV = .CLAMP_TO_EDGE,
         addressModeW = .CLAMP_TO_EDGE,
-        maxLod = 0,
+        maxLod       = 0,
     }
     if vk.CreateSampler(state.ctx.device, &sampler_info, nil, &mask.sampler) != .SUCCESS {
         resources.image_destroy(&mask, &state.ctx)
         return false
     }
     engine.vk_set_debug_name(&state.ctx, .SAMPLER, auto_cast mask.sampler, "canvas world mask sampler")
-    if msaa_required && !resources.image_create(
-        &state.ctx,
-        extent.width,
-        extent.height,
-        .R8_UNORM,
-        {.COLOR_ATTACHMENT},
-        {.COLOR},
-        samples,
-        &msaa_mask,
-        "canvas multisampled world mask",
-    ) {
+    if msaa_required &&
+       !resources.image_create(
+               &state.ctx,
+               extent.width,
+               extent.height,
+               .R8_UNORM,
+               {.COLOR_ATTACHMENT},
+               {.COLOR},
+               samples,
+               &msaa_mask,
+               "canvas multisampled world mask",
+           ) {
         resources.image_destroy(&mask, &state.ctx)
         return false
     }
@@ -1066,16 +1078,28 @@ ensure_world_scene :: proc() -> bool {
         sampler = state.world_scene.sampler,
     }
     depth_image_info := vk.DescriptorImageInfo {
-        imageView = state.depth.view,
+        imageView   = state.depth.view,
         imageLayout = .SHADER_READ_ONLY_OPTIMAL,
     }
-    depth_sampler := vk.DescriptorImageInfo {sampler = state.depth.sampler}
+    depth_sampler := vk.DescriptorImageInfo {
+        sampler = state.depth.sampler,
+    }
     aux0_id := clamp(state.world_post_aux_texture_ids[0], 0, max(state.texture_count - 1, 0))
     aux1_id := clamp(state.world_post_aux_texture_ids[1], 0, max(state.texture_count - 1, 0))
-    aux0_image := vk.DescriptorImageInfo {imageView = state.textures[aux0_id].view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    aux0_sampler := vk.DescriptorImageInfo {sampler = state.textures[aux0_id].sampler}
-    aux1_image := vk.DescriptorImageInfo {imageView = state.textures[aux1_id].view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    aux1_sampler := vk.DescriptorImageInfo {sampler = state.textures[aux1_id].sampler}
+    aux0_image := vk.DescriptorImageInfo {
+        imageView   = state.textures[aux0_id].view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    aux0_sampler := vk.DescriptorImageInfo {
+        sampler = state.textures[aux0_id].sampler,
+    }
+    aux1_image := vk.DescriptorImageInfo {
+        imageView   = state.textures[aux1_id].view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    aux1_sampler := vk.DescriptorImageInfo {
+        sampler = state.textures[aux1_id].sampler,
+    }
     writes := [8]vk.WriteDescriptorSet {
         {
             sType = .WRITE_DESCRIPTOR_SET,
@@ -1109,10 +1133,38 @@ ensure_world_scene :: proc() -> bool {
             descriptorType = .SAMPLER,
             pImageInfo = &depth_sampler,
         },
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR], dstBinding = 4, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &aux0_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR], dstBinding = 5, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &aux0_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR], dstBinding = 6, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &aux1_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR], dstBinding = 7, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &aux1_sampler},
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR],
+            dstBinding = 4,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &aux0_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR],
+            dstBinding = 5,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &aux0_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR],
+            dstBinding = 6,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &aux1_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_SCENE_DESCRIPTOR],
+            dstBinding = 7,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &aux1_sampler,
+        },
     }
     vk.UpdateDescriptorSets(state.ctx.device, 8, raw_data(writes[:]), 0, nil)
     update_world_post_descriptor(WORLD_POST_SCENE_DESCRIPTOR, &state.world_scene, &state.world_scene)
@@ -1134,7 +1186,15 @@ ensure_world_post_ping :: proc(index: int, extent: vk.Extent2D) -> bool {
     state.world_post_ping_sample_ready[index] = false
     name := index == 0 ? "canvas world post ping 0" : "canvas world post ping 1"
     if !resources.image_create(&state.ctx, extent.width, extent.height, state.ctx.swapchain_format, {.COLOR_ATTACHMENT, .SAMPLED}, {.COLOR}, {._1}, target, name) do return false
-    sampler_info := vk.SamplerCreateInfo{sType = .SAMPLER_CREATE_INFO, magFilter = .LINEAR, minFilter = .LINEAR, addressModeU = .CLAMP_TO_EDGE, addressModeV = .CLAMP_TO_EDGE, addressModeW = .CLAMP_TO_EDGE, maxLod = 0}
+    sampler_info := vk.SamplerCreateInfo {
+        sType        = .SAMPLER_CREATE_INFO,
+        magFilter    = .LINEAR,
+        minFilter    = .LINEAR,
+        addressModeU = .CLAMP_TO_EDGE,
+        addressModeV = .CLAMP_TO_EDGE,
+        addressModeW = .CLAMP_TO_EDGE,
+        maxLod       = 0,
+    }
     if vk.CreateSampler(state.ctx.device, &sampler_info, nil, &target.sampler) != .SUCCESS {
         resources.image_destroy(target, &state.ctx)
         return false
@@ -1144,38 +1204,156 @@ ensure_world_post_ping :: proc(index: int, extent: vk.Extent2D) -> bool {
     return true
 }
 
-update_world_post_descriptor :: proc(descriptor_index: int, source: ^resources.Image, original: ^resources.Image = nil) {
+update_world_post_descriptor :: proc(
+    descriptor_index: int,
+    source: ^resources.Image,
+    original: ^resources.Image = nil,
+) {
     original_image_source := original
     if original_image_source == nil do original_image_source = source
-    source_image := vk.DescriptorImageInfo{imageView = source.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    source_sampler := vk.DescriptorImageInfo{sampler = source.sampler}
-    depth_image := vk.DescriptorImageInfo{imageView = state.depth.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    depth_sampler := vk.DescriptorImageInfo{sampler = state.depth.sampler}
+    source_image := vk.DescriptorImageInfo {
+        imageView   = source.view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    source_sampler := vk.DescriptorImageInfo {
+        sampler = source.sampler,
+    }
+    depth_image := vk.DescriptorImageInfo {
+        imageView   = state.depth.view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    depth_sampler := vk.DescriptorImageInfo {
+        sampler = state.depth.sampler,
+    }
     aux0_id := clamp(state.world_post_aux_texture_ids[0], 0, max(state.texture_count - 1, 0))
     aux1_id := clamp(state.world_post_aux_texture_ids[1], 0, max(state.texture_count - 1, 0))
-    aux0_image := vk.DescriptorImageInfo{imageView = state.textures[aux0_id].view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    aux0_sampler := vk.DescriptorImageInfo{sampler = state.textures[aux0_id].sampler}
-    aux1_image := vk.DescriptorImageInfo{imageView = state.textures[aux1_id].view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    aux1_sampler := vk.DescriptorImageInfo{sampler = state.textures[aux1_id].sampler}
-    original_image := vk.DescriptorImageInfo{imageView = original_image_source.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    original_sampler := vk.DescriptorImageInfo{sampler = original_image_source.sampler}
+    aux0_image := vk.DescriptorImageInfo {
+        imageView   = state.textures[aux0_id].view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    aux0_sampler := vk.DescriptorImageInfo {
+        sampler = state.textures[aux0_id].sampler,
+    }
+    aux1_image := vk.DescriptorImageInfo {
+        imageView   = state.textures[aux1_id].view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    aux1_sampler := vk.DescriptorImageInfo {
+        sampler = state.textures[aux1_id].sampler,
+    }
+    original_image := vk.DescriptorImageInfo {
+        imageView   = original_image_source.view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    original_sampler := vk.DescriptorImageInfo {
+        sampler = original_image_source.sampler,
+    }
     mask_source := &state.world_mask
     if mask_source.view == vk.ImageView(0) do mask_source = &state.textures[0]
-    mask_image := vk.DescriptorImageInfo{imageView = mask_source.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    mask_sampler := vk.DescriptorImageInfo{sampler = mask_source.sampler}
-    writes := [12]vk.WriteDescriptorSet{
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 0, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &source_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 1, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &source_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 2, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &depth_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 3, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &depth_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 4, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &aux0_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 5, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &aux0_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 6, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &aux1_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 7, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &aux1_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 8, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &original_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 9, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &original_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 10, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &mask_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[descriptor_index], dstBinding = 11, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &mask_sampler},
+    mask_image := vk.DescriptorImageInfo {
+        imageView   = mask_source.view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    mask_sampler := vk.DescriptorImageInfo {
+        sampler = mask_source.sampler,
+    }
+    writes := [12]vk.WriteDescriptorSet {
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 0,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &source_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 1,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &source_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 2,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &depth_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 3,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &depth_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 4,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &aux0_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 5,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &aux0_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 6,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &aux1_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 7,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &aux1_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 8,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &original_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 9,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &original_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 10,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &mask_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[descriptor_index],
+            dstBinding = 11,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &mask_sampler,
+        },
     }
     vk.UpdateDescriptorSets(state.ctx.device, 12, raw_data(writes[:]), 0, nil)
 }
@@ -1205,14 +1383,29 @@ ensure_hdr_scene :: proc() -> bool {
     si := vk.DescriptorImageInfo {
         sampler = state.hdr_scene.sampler,
     }
-    depth_image_info := vk.DescriptorImageInfo {imageView = state.depth.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    depth_sampler := vk.DescriptorImageInfo {sampler = state.depth.sampler}
+    depth_image_info := vk.DescriptorImageInfo {
+        imageView   = state.depth.view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    depth_sampler := vk.DescriptorImageInfo {
+        sampler = state.depth.sampler,
+    }
     aux0_id := clamp(state.world_post_aux_texture_ids[0], 0, max(state.texture_count - 1, 0))
     aux1_id := clamp(state.world_post_aux_texture_ids[1], 0, max(state.texture_count - 1, 0))
-    aux0_image := vk.DescriptorImageInfo {imageView = state.textures[aux0_id].view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    aux0_sampler := vk.DescriptorImageInfo {sampler = state.textures[aux0_id].sampler}
-    aux1_image := vk.DescriptorImageInfo {imageView = state.textures[aux1_id].view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
-    aux1_sampler := vk.DescriptorImageInfo {sampler = state.textures[aux1_id].sampler}
+    aux0_image := vk.DescriptorImageInfo {
+        imageView   = state.textures[aux0_id].view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    aux0_sampler := vk.DescriptorImageInfo {
+        sampler = state.textures[aux0_id].sampler,
+    }
+    aux1_image := vk.DescriptorImageInfo {
+        imageView   = state.textures[aux1_id].view,
+        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+    }
+    aux1_sampler := vk.DescriptorImageInfo {
+        sampler = state.textures[aux1_id].sampler,
+    }
     writes := [8]vk.WriteDescriptorSet {
         {
             sType = .WRITE_DESCRIPTOR_SET,
@@ -1230,12 +1423,54 @@ ensure_hdr_scene :: proc() -> bool {
             descriptorType = .SAMPLER,
             pImageInfo = &si,
         },
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR], dstBinding = 2, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &depth_image_info},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR], dstBinding = 3, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &depth_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR], dstBinding = 4, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &aux0_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR], dstBinding = 5, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &aux0_sampler},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR], dstBinding = 6, descriptorCount = 1, descriptorType = .SAMPLED_IMAGE, pImageInfo = &aux1_image},
-        {sType = .WRITE_DESCRIPTOR_SET, dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR], dstBinding = 7, descriptorCount = 1, descriptorType = .SAMPLER, pImageInfo = &aux1_sampler},
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR],
+            dstBinding = 2,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &depth_image_info,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR],
+            dstBinding = 3,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &depth_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR],
+            dstBinding = 4,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &aux0_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR],
+            dstBinding = 5,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &aux0_sampler,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR],
+            dstBinding = 6,
+            descriptorCount = 1,
+            descriptorType = .SAMPLED_IMAGE,
+            pImageInfo = &aux1_image,
+        },
+        {
+            sType = .WRITE_DESCRIPTOR_SET,
+            dstSet = state.post_descriptors[WORLD_POST_HDR_DESCRIPTOR],
+            dstBinding = 7,
+            descriptorCount = 1,
+            descriptorType = .SAMPLER,
+            pImageInfo = &aux1_sampler,
+        },
     }
     vk.UpdateDescriptorSets(state.ctx.device, 8, raw_data(writes[:]), 0, nil)
     update_world_post_descriptor(WORLD_POST_HDR_DESCRIPTOR, &state.hdr_scene, &state.hdr_scene)

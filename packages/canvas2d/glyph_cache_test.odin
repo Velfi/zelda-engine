@@ -13,7 +13,7 @@ glyph_cache_uses_smallest_non_upscaled_tier :: proc(t: ^testing.T) {
 @(test)
 glyph_cache_evicts_only_unpinned_lru_slots :: proc(t: ^testing.T) {
     prior := state
-    defer {state = prior}
+    defer { state = prior }
     local := new(State)
     defer free(local)
     state = local
@@ -21,8 +21,8 @@ glyph_cache_evicts_only_unpinned_lru_slots :: proc(t: ^testing.T) {
     start, count := glyph_page_slot_range(0)
     for index in start ..< start + count {
         state.glyph_entries[index] = {
-            occupied = true,
-            last_used = u64(index + 100),
+            occupied     = true,
+            last_used    = u64(index + 100),
             pinned_until = state.glyph_frame + 2,
         }
     }

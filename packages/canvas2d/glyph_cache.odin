@@ -5,28 +5,34 @@ import ui "zelda_engine:ui"
 
 glyph_page_cell :: proc(page: int) -> int {
     switch page {
-    case 0: return GLYPH_ATLAS_CELL_32
-    case 1: return GLYPH_ATLAS_CELL_64
+    case 0:
+        return GLYPH_ATLAS_CELL_32
+    case 1:
+        return GLYPH_ATLAS_CELL_64
     }
     return GLYPH_ATLAS_CELL_128
 }
 
 glyph_page_tier :: proc(page: int) -> int {
     switch page {
-    case 0: return 32
-    case 1: return 64
+    case 0:
+        return 32
+    case 1:
+        return 64
     }
     return 128
 }
 
 glyph_page_slot_range :: proc(page: int) -> (start, count: int) {
     switch page {
-    case 0: return 0, GLYPH_ATLAS_SLOTS_32
-    case 1: return GLYPH_ATLAS_SLOTS_32, GLYPH_ATLAS_SLOTS_64
-    case 2: return GLYPH_ATLAS_SLOTS_32 + GLYPH_ATLAS_SLOTS_64, GLYPH_ATLAS_SLOTS_128
+    case 0:
+        return 0, GLYPH_ATLAS_SLOTS_32
+    case 1:
+        return GLYPH_ATLAS_SLOTS_32, GLYPH_ATLAS_SLOTS_64
+    case 2:
+        return GLYPH_ATLAS_SLOTS_32 + GLYPH_ATLAS_SLOTS_64, GLYPH_ATLAS_SLOTS_128
     case 3:
-        return GLYPH_ATLAS_SLOTS_32 + GLYPH_ATLAS_SLOTS_64 + GLYPH_ATLAS_SLOTS_128,
-               GLYPH_ATLAS_SLOTS_128
+        return GLYPH_ATLAS_SLOTS_32 + GLYPH_ATLAS_SLOTS_64 + GLYPH_ATLAS_SLOTS_128, GLYPH_ATLAS_SLOTS_128
     }
     return 0, 0
 }
@@ -56,8 +62,10 @@ glyph_cache_destroy :: proc() {
 
 glyph_cache_page_for_tier :: proc(tier, alternate: int) -> int {
     switch tier {
-    case 32: return 0
-    case 64: return 1
+    case 32:
+        return 0
+    case 64:
+        return 1
     }
     return 2 + clamp(alternate, 0, 1)
 }
@@ -116,13 +124,7 @@ glyph_cache_load :: proc(key: Glyph_Cache_Key) -> (^Glyph_Cache_Entry, bool) {
 
     metrics: ui.Gui_Raster_Glyph
     scratch := make([]u8, cell * cell, context.temp_allocator)
-    rendered := ui.gui_font_rasterize_glyph(
-        key.face_id,
-        key.glyph_id,
-        int(key.tier),
-        scratch,
-        &metrics,
-    )
+    rendered := ui.gui_font_rasterize_glyph(key.face_id, key.glyph_id, int(key.tier), scratch, &metrics)
     needed := int(metrics.width * metrics.height)
     if rendered < 0 {
         needed = -rendered
@@ -130,13 +132,7 @@ glyph_cache_load :: proc(key: Glyph_Cache_Key) -> (^Glyph_Cache_Entry, bool) {
             state.glyph_cache_failures += 1
             return nil, false
         }
-        rendered = ui.gui_font_rasterize_glyph(
-            key.face_id,
-            key.glyph_id,
-            int(key.tier),
-            scratch[:needed],
-            &metrics,
-        )
+        rendered = ui.gui_font_rasterize_glyph(key.face_id, key.glyph_id, int(key.tier), scratch[:needed], &metrics)
     }
     if rendered < 0 ||
        metrics.width > i32(cell - GLYPH_ATLAS_PADDING * 2) ||
@@ -149,10 +145,7 @@ glyph_cache_load :: proc(key: Glyph_Cache_Key) -> (^Glyph_Cache_Entry, bool) {
     for row in 0 ..< int(metrics.height) {
         source := row * int(metrics.width)
         destination := (row + GLYPH_ATLAS_PADDING) * cell + GLYPH_ATLAS_PADDING
-        copy(
-            cell_pixels[destination:destination + int(metrics.width)],
-            scratch[source:source + int(metrics.width)],
-        )
+        copy(cell_pixels[destination:destination + int(metrics.width)], scratch[source:source + int(metrics.width)])
     }
     if !update_dynamic_texture_r8_region(
         state.glyph_pages[page],
@@ -165,17 +158,17 @@ glyph_cache_load :: proc(key: Glyph_Cache_Key) -> (^Glyph_Cache_Entry, bool) {
 
     generation := entry.generation + 1
     entry^ = {
-        key = key,
-        occupied = true,
-        page = u8(page),
-        generation = generation,
-        x = i32(cell_x + GLYPH_ATLAS_PADDING),
-        y = i32(cell_y + GLYPH_ATLAS_PADDING),
-        width = metrics.width,
-        height = metrics.height,
-        left = metrics.left,
-        top = metrics.top,
-        last_used = state.glyph_frame,
+        key          = key,
+        occupied     = true,
+        page         = u8(page),
+        generation   = generation,
+        x            = i32(cell_x + GLYPH_ATLAS_PADDING),
+        y            = i32(cell_y + GLYPH_ATLAS_PADDING),
+        width        = metrics.width,
+        height       = metrics.height,
+        left         = metrics.left,
+        top          = metrics.top,
+        last_used    = state.glyph_frame,
         pinned_until = state.glyph_frame + 2,
     }
     state.glyph_lookup[key] = slot

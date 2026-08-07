@@ -1,7 +1,7 @@
 package physics
 
-import "core:testing"
 import "core:math"
+import "core:testing"
 
 @(test)
 falling_body_lands_on_floor :: proc(t: ^testing.T) {

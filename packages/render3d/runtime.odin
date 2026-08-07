@@ -33,7 +33,8 @@ create_color_pipeline_variants :: proc(
             rendering := engine.vk_pipeline_rendering_info(&format)
             rendering.depthAttachmentFormat = depth_format
             info.pNext = &rendering
-            if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, info, nil, &pipelines[index]) != .SUCCESS {
+            if vk.CreateGraphicsPipelines(ctx.device, vk.PipelineCache(0), 1, info, nil, &pipelines[index]) !=
+               .SUCCESS {
                 info.pMultisampleState = original_multisample
                 return false
             }

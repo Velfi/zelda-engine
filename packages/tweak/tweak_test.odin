@@ -7,9 +7,9 @@ import "core:strings"
 import "core:testing"
 import "core:time"
 
-import "zelda_engine:toml"
 import "base:intrinsics"
 import "base:runtime"
+import "zelda_engine:toml"
 
 Vec4 :: #simd[4]f32
 Color :: [4]f32
@@ -42,7 +42,9 @@ encode_struct_fields_reuses_existing_key :: proc(t: ^testing.T) {
     table[strings.clone("version", context.allocator)] = i64(1)
     defer toml.deep_delete(table, context.allocator)
 
-    value := Versioned{version = 2}
+    value := Versioned {
+        version = 2,
+    }
     testing.expect(t, encode_struct_fields(table, reflect.deref(any(&value)), context.allocator))
     testing.expect_value(t, len(table), 1)
     testing.expect_value(t, table["version"], toml.Type(i64(2)))
@@ -53,7 +55,9 @@ generated_table_owns_seeded_version_key :: proc(t: ^testing.T) {
     table := new(toml.Table, context.allocator)
     table[strings.clone("version", context.allocator)] = i64(1)
 
-    value := No_Version{enabled = true}
+    value := No_Version {
+        enabled = true,
+    }
     testing.expect(t, encode_struct_fields(table, reflect.deref(any(&value)), context.allocator))
     testing.expect(t, toml.deep_delete(table, context.allocator) == .None)
 }

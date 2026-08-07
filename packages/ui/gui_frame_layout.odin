@@ -206,8 +206,7 @@ gui_init_text_shaper :: proc() {
     gui_text_shaper_font_ready[int(Gui_Font_Kind.SimStart)] = sim_start_ready
     for font_kind in Gui_Font_Kind {
         kind := int(font_kind)
-        if kind < 0 || kind >= len(gui_font_fallback_counts) ||
-           !gui_text_shaper_font_ready[kind] {
+        if kind < 0 || kind >= len(gui_font_fallback_counts) || !gui_text_shaper_font_ready[kind] {
             continue
         }
         for path in gui_font_fallback_paths[kind][:gui_font_fallback_counts[kind]] {
@@ -234,7 +233,9 @@ gui_set_display_font_path :: proc(path: cstring) -> bool {
 
 gui_add_font_fallback_path :: proc(font_kind: Gui_Font_Kind, path: cstring) -> bool {
     kind := int(font_kind)
-    if gui_text_shaper_ready || path == nil || kind < 0 ||
+    if gui_text_shaper_ready ||
+       path == nil ||
+       kind < 0 ||
        kind >= len(gui_font_fallback_counts) ||
        gui_font_fallback_counts[kind] >= GUI_FONT_FALLBACK_CAP {
         return false

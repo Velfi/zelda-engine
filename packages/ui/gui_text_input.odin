@@ -142,11 +142,7 @@ gui_text_edit_next_word_index :: proc(bytes: []u8, index: int) -> int {
     return min(i + gui_text_next_word(bytes[i:]), len(bytes))
 }
 
-gui_text_edit_visual_neighbor :: proc(
-    ctx: ^Gui_Context,
-    bytes: []u8,
-    index, direction: int,
-) -> int {
+gui_text_edit_visual_neighbor :: proc(ctx: ^Gui_Context, bytes: []u8, index, direction: int) -> int {
     if len(bytes) == 0 do return 0
     shaped := make([]Gui_Shaped_Glyph, len(bytes), context.temp_allocator)
     count := gui_font_shape_text(.Body, bytes, ctx.style.body_text_scale, shaped)
@@ -159,15 +155,9 @@ gui_text_edit_visual_neighbor :: proc(
     for glyph in shaped[:count] {
         if glyph.cluster == previous_cluster do continue
         if len(carets) == 0 {
-            append(
-                &carets,
-                glyph.direction == 2 ? int(glyph.cluster_end) : int(glyph.cluster),
-            )
+            append(&carets, glyph.direction == 2 ? int(glyph.cluster_end) : int(glyph.cluster))
         }
-        append(
-            &carets,
-            glyph.direction == 2 ? int(glyph.cluster) : int(glyph.cluster_end),
-        )
+        append(&carets, glyph.direction == 2 ? int(glyph.cluster) : int(glyph.cluster_end))
         previous_cluster = glyph.cluster
     }
     visual := -1
@@ -245,12 +235,7 @@ gui_text_edit_process :: proc(ctx: ^Gui_Context, id: Gui_Id, buffer: []u8, lengt
             gui_text_edit_move_caret(
                 ctx,
                 length^,
-                gui_text_edit_visual_neighbor(
-                    ctx,
-                    buffer[:length^],
-                    ctx.text_edit_caret,
-                    -1,
-                ),
+                gui_text_edit_visual_neighbor(ctx, buffer[:length^], ctx.text_edit_caret, -1),
                 ctx.input.key_shift,
             )
         }
@@ -272,12 +257,7 @@ gui_text_edit_process :: proc(ctx: ^Gui_Context, id: Gui_Id, buffer: []u8, lengt
             gui_text_edit_move_caret(
                 ctx,
                 length^,
-                gui_text_edit_visual_neighbor(
-                    ctx,
-                    buffer[:length^],
-                    ctx.text_edit_caret,
-                    1,
-                ),
+                gui_text_edit_visual_neighbor(ctx, buffer[:length^], ctx.text_edit_caret, 1),
                 ctx.input.key_shift,
             )
         }
@@ -477,11 +457,7 @@ gui_text_edit_draw :: proc(
             ctx.text_edit_blink -= 1.0
         }
         if ctx.text_edit_blink < 0.55 {
-            caret_x := draw_pos.x + gui_text_edit_caret_x(
-                ctx,
-                buffer[:length],
-                ctx.text_edit_caret,
-            )
+            caret_x := draw_pos.x + gui_text_edit_caret_x(ctx, buffer[:length], ctx.text_edit_caret)
             caret_w := max(ctx.style.border_width * 2, 2)
             caret_h := max(ctx.style.body_text_height, rect.h - ctx.style.control_padding * 2)
             caret_y := rect.y + max((rect.h - caret_h) * 0.5, 0)

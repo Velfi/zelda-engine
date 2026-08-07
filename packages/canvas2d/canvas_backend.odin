@@ -3,9 +3,9 @@ package canvas2d
 // Product-neutral immediate 2D canvas backed by zelda-engine's Vulkan context.
 // Consumer shaders define effect payload semantics and presentation policy.
 
+import "core:fmt"
 import "core:image"
 import _ "core:image/png"
-import "core:fmt"
 import "core:math"
 import "core:mem"
 import "core:os"
@@ -50,12 +50,12 @@ load_consumer_shader :: proc(
 }
 
 @(no_instrumentation)
-to_color :: #force_inline proc(c: Color) -> [4]f32 { return{
+to_color :: #force_inline proc(c: Color) -> [4]f32 {return{
         f32(c.r) / 255,
         f32(c.g) / 255,
         f32(c.b) / 255,
         f32(c.a) / 255,
-    } }
+    }}
 
 srgb_channel_to_linear :: proc(channel: u8) -> f32 {
     c := f32(channel) / 255
@@ -184,8 +184,8 @@ upload_font :: proc() -> bool {ui.gui_init(&state.gui)
         metrics: ui.Gui_Font_Metrics
         if ui.gui_font_metrics(font_kind, font_pixel_height, &metrics) {
             state.font_metrics_em[index] = {
-                ascent = metrics.ascent / f32(font_pixel_height),
-                descent = metrics.descent / f32(font_pixel_height),
+                ascent   = metrics.ascent / f32(font_pixel_height),
+                descent  = metrics.descent / f32(font_pixel_height),
                 line_gap = metrics.line_gap / f32(font_pixel_height),
             }
         } else {
@@ -219,13 +219,7 @@ upload_font :: proc() -> bool {ui.gui_init(&state.gui)
         fallback_kinds := is_symbol ? font_kinds[1:] : font_kinds[:]
         for fallback_kind in fallback_kinds {
             fallback_bounds: ui.Gui_Glyph_Bounds
-            if !ui.gui_font_ascii_glyph_bounds(
-                fallback_kind,
-                int(ch),
-                int(ch),
-                fallback_height,
-                &fallback_bounds,
-            ) {
+            if !ui.gui_font_ascii_glyph_bounds(fallback_kind, int(ch), int(ch), fallback_height, &fallback_bounds) {
                 return false
             }
             bounds.min_x = min(bounds.min_x, fallback_bounds.min_x)
@@ -250,15 +244,29 @@ upload_font :: proc() -> bool {ui.gui_init(&state.gui)
     body_pixels := font_pixels[:font_plane_bytes]
     display_pixels := font_pixels[font_plane_bytes:]
     body_rendered := ui.gui_font_render_ascii_atlas(
-        .Body, FONT_FIRST, FONT_LAST, font_pixel_height,
-        state.font_cell_width, state.font_cell_height, FONT_COLUMNS,
-        state.font_origin_x, state.font_baseline, body_pixels,
+        .Body,
+        FONT_FIRST,
+        FONT_LAST,
+        font_pixel_height,
+        state.font_cell_width,
+        state.font_cell_height,
+        FONT_COLUMNS,
+        state.font_origin_x,
+        state.font_baseline,
+        body_pixels,
     )
     if !body_rendered do return false
     display_rendered := ui.gui_font_render_ascii_atlas(
-        .Display, FONT_FIRST, FONT_LAST, font_pixel_height,
-        state.font_cell_width, state.font_cell_height, FONT_COLUMNS,
-        state.font_origin_x, state.font_baseline, display_pixels,
+        .Display,
+        FONT_FIRST,
+        FONT_LAST,
+        font_pixel_height,
+        state.font_cell_width,
+        state.font_cell_height,
+        FONT_COLUMNS,
+        state.font_origin_x,
+        state.font_baseline,
+        display_pixels,
     )
     if !display_rendered do return false
     fallback_cell := make([]u8, state.font_cell_width * state.font_cell_height * 4, context.temp_allocator)
@@ -271,20 +279,22 @@ upload_font :: proc() -> bool {ui.gui_init(&state.gui)
         for plane in 0 ..< 2 {
             fallback_kind := is_symbol ? ui.Gui_Font_Kind.Display : font_kinds[plane]
             fallback_rendered := ui.gui_font_render_ascii_atlas(
-                fallback_kind, int(ch), int(ch), fallback_height,
-                state.font_cell_width, state.font_cell_height, 1,
-                state.font_origin_x, state.font_baseline, fallback_cell,
+                fallback_kind,
+                int(ch),
+                int(ch),
+                fallback_height,
+                state.font_cell_width,
+                state.font_cell_height,
+                1,
+                state.font_origin_x,
+                state.font_baseline,
+                fallback_cell,
             )
             if !fallback_rendered do return false
             for y in 0 ..< state.font_cell_height {
-                destination := plane * font_plane_bytes +
-                    (cell_y + y) * state.font_atlas_width * 4 +
-                    cell_x * 4
+                destination := plane * font_plane_bytes + (cell_y + y) * state.font_atlas_width * 4 + cell_x * 4
                 source := y * state.font_cell_width * 4
-                copy(
-                    font_pixels[destination:],
-                    fallback_cell[source:source + state.font_cell_width * 4],
-                )
+                copy(font_pixels[destination:], fallback_cell[source:source + state.font_cell_width * 4])
             }
         }
     }
@@ -299,10 +309,7 @@ upload_font :: proc() -> bool {ui.gui_init(&state.gui)
     font_atlas_height := state.font_atlas_height * 2
     height := font_atlas_height + icons.height
     pixels := make([]u8, width * height * 4, context.temp_allocator)
-    for y in 0 ..< font_atlas_height do copy(
-        pixels[y * width * 4:],
-        font_pixels[y * state.font_atlas_width * 4:(y + 1) * state.font_atlas_width * 4],
-    )
+    for y in 0 ..< font_atlas_height do copy(pixels[y * width * 4:], font_pixels[y * state.font_atlas_width * 4:(y + 1) * state.font_atlas_width * 4])
     for y in 0 ..< icons.height do copy(pixels[(font_atlas_height + y) * width * 4:], icons.pixels.buf[y * icons.width * 4:(y + 1) * icons.width * 4])
     state.texture_width, state.texture_height = width, height
     state.icon_y, state.icon_width, state.icon_height = font_atlas_height, icons.width, icons.height
@@ -439,7 +446,14 @@ ReloadShaders :: proc() -> bool {
     if !state.initialized || state.ctx.device == nil do return false
     _ = vk.DeviceWaitIdle(state.ctx.device)
     next, next_hdr, next_post: vk.Pipeline
-    if !backend_create_pipelines(&state.ctx, state.ui_pipeline_layout, state.post_pipeline_layout, &next, &next_hdr, &next_post) {
+    if !backend_create_pipelines(
+        &state.ctx,
+        state.ui_pipeline_layout,
+        state.post_pipeline_layout,
+        &next,
+        &next_hdr,
+        &next_post,
+    ) {
         if next != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, next, nil)
         if next_hdr != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, next_hdr, nil)
         if next_post != vk.Pipeline(0) do vk.DestroyPipeline(state.ctx.device, next_post, nil)
@@ -454,15 +468,15 @@ ReloadShaders :: proc() -> bool {
 }
 
 ui_descriptor_pool_add_page :: proc() -> bool {
-    sizes := [2]vk.DescriptorPoolSize{
+    sizes := [2]vk.DescriptorPoolSize {
         {type = .SAMPLED_IMAGE, descriptorCount = UI_DESCRIPTOR_POOL_PAGE_SIZE},
         {type = .SAMPLER, descriptorCount = UI_DESCRIPTOR_POOL_PAGE_SIZE},
     }
-    info := vk.DescriptorPoolCreateInfo{
-        sType = .DESCRIPTOR_POOL_CREATE_INFO,
-        maxSets = UI_DESCRIPTOR_POOL_PAGE_SIZE,
+    info := vk.DescriptorPoolCreateInfo {
+        sType         = .DESCRIPTOR_POOL_CREATE_INFO,
+        maxSets       = UI_DESCRIPTOR_POOL_PAGE_SIZE,
         poolSizeCount = 2,
-        pPoolSizes = raw_data(sizes[:]),
+        pPoolSizes    = raw_data(sizes[:]),
     }
     page := Ui_Descriptor_Pool_Page{}
     if vk.CreateDescriptorPool(state.ctx.device, &info, nil, &page.pool) != .SUCCESS do return false
@@ -473,15 +487,16 @@ ui_descriptor_pool_add_page :: proc() -> bool {
 
 ui_descriptor_allocate :: proc() -> (vk.DescriptorSet, bool) {
     if len(state.ui_descriptor_pool_pages) == 0 ||
-       state.ui_descriptor_pool_pages[len(state.ui_descriptor_pool_pages) - 1].allocated >= UI_DESCRIPTOR_POOL_PAGE_SIZE {
+       state.ui_descriptor_pool_pages[len(state.ui_descriptor_pool_pages) - 1].allocated >=
+           UI_DESCRIPTOR_POOL_PAGE_SIZE {
         if !ui_descriptor_pool_add_page() do return {}, false
     }
     page := &state.ui_descriptor_pool_pages[len(state.ui_descriptor_pool_pages) - 1]
-    info := vk.DescriptorSetAllocateInfo{
-        sType = .DESCRIPTOR_SET_ALLOCATE_INFO,
-        descriptorPool = page.pool,
+    info := vk.DescriptorSetAllocateInfo {
+        sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
+        descriptorPool     = page.pool,
         descriptorSetCount = 1,
-        pSetLayouts = &state.ui_descriptor_layout,
+        pSetLayouts        = &state.ui_descriptor_layout,
     }
     descriptor: vk.DescriptorSet
     if vk.AllocateDescriptorSets(state.ctx.device, &info, &descriptor) != .SUCCESS do return {}, false
@@ -526,13 +541,13 @@ backend_init :: proc() -> bool {
     stage = "depth resources"
     if !resources.depth_create(ctx, ctx.swapchain_extent.width, ctx.swapchain_extent.height, &state.depth) do return false
     depth_sampler_info := vk.SamplerCreateInfo {
-        sType = .SAMPLER_CREATE_INFO,
-        magFilter = .NEAREST,
-        minFilter = .NEAREST,
+        sType        = .SAMPLER_CREATE_INFO,
+        magFilter    = .NEAREST,
+        minFilter    = .NEAREST,
         addressModeU = .CLAMP_TO_EDGE,
         addressModeV = .CLAMP_TO_EDGE,
         addressModeW = .CLAMP_TO_EDGE,
-        maxLod = 0,
+        maxLod       = 0,
     }
     if vk.CreateSampler(ctx.device, &depth_sampler_info, nil, &state.depth.sampler) != .SUCCESS do return false
     engine.vk_set_debug_name(ctx, .SAMPLER, auto_cast state.depth.sampler, "canvas world depth sampler")
@@ -544,19 +559,24 @@ backend_init :: proc() -> bool {
     stage = "frame buffers"
     for i in 0 ..< engine.MAX_FRAMES_IN_FLIGHT { if !engine.vk_create_host_buffer(ctx, vk.DeviceSize(MAX_VERTICES * size_of(Vertex)), {.VERTEX_BUFFER}, &state.vertex[i]) do return false; if !engine.vk_create_host_buffer(ctx, vk.DeviceSize(MAX_INDICES * size_of(u32)), {.INDEX_BUFFER}, &state.index[i]) do return false }
     stage = "descriptor layouts and pools"
-    ui_bindings := [2]vk.DescriptorSetLayoutBinding{
+    ui_bindings := [2]vk.DescriptorSetLayoutBinding {
         {binding = 0, descriptorType = .SAMPLED_IMAGE, descriptorCount = 1, stageFlags = {.FRAGMENT}},
         {binding = 1, descriptorType = .SAMPLER, descriptorCount = 1, stageFlags = {.FRAGMENT}},
     }
-    ui_layout_info := vk.DescriptorSetLayoutCreateInfo{
-        sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    ui_layout_info := vk.DescriptorSetLayoutCreateInfo {
+        sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         bindingCount = 2,
-        pBindings = raw_data(ui_bindings[:]),
+        pBindings    = raw_data(ui_bindings[:]),
     }
     if vk.CreateDescriptorSetLayout(ctx.device, &ui_layout_info, nil, &state.ui_descriptor_layout) != .SUCCESS do return false
-    engine.vk_set_debug_name(ctx, .DESCRIPTOR_SET_LAYOUT, auto_cast state.ui_descriptor_layout, "canvas UI descriptor set layout")
+    engine.vk_set_debug_name(
+        ctx,
+        .DESCRIPTOR_SET_LAYOUT,
+        auto_cast state.ui_descriptor_layout,
+        "canvas UI descriptor set layout",
+    )
 
-    post_bindings := [12]vk.DescriptorSetLayoutBinding{
+    post_bindings := [12]vk.DescriptorSetLayoutBinding {
         {binding = 0, descriptorType = .SAMPLED_IMAGE, descriptorCount = 1, stageFlags = {.FRAGMENT}},
         {binding = 1, descriptorType = .SAMPLER, descriptorCount = 1, stageFlags = {.FRAGMENT}},
         {binding = 2, descriptorType = .SAMPLED_IMAGE, descriptorCount = 1, stageFlags = {.FRAGMENT}},
@@ -574,7 +594,12 @@ backend_init :: proc() -> bool {
         bindingCount = 12,
         pBindings    = raw_data(post_bindings[:]),
     }; if vk.CreateDescriptorSetLayout(ctx.device, &post_layout_info, nil, &state.post_descriptor_layout) != .SUCCESS do return false
-    engine.vk_set_debug_name(ctx, .DESCRIPTOR_SET_LAYOUT, auto_cast state.post_descriptor_layout, "canvas post descriptor set layout")
+    engine.vk_set_debug_name(
+        ctx,
+        .DESCRIPTOR_SET_LAYOUT,
+        auto_cast state.post_descriptor_layout,
+        "canvas post descriptor set layout",
+    )
 
     post_pool_sizes := [2]vk.DescriptorPoolSize {
         {type = .SAMPLED_IMAGE, descriptorCount = WORLD_POST_DESCRIPTOR_COUNT * 6},
@@ -585,7 +610,12 @@ backend_init :: proc() -> bool {
         poolSizeCount = 2,
         pPoolSizes    = raw_data(post_pool_sizes[:]),
     }; if vk.CreateDescriptorPool(ctx.device, &post_pool_info, nil, &state.post_descriptor_pool) != .SUCCESS do return false
-    engine.vk_set_debug_name(ctx, .DESCRIPTOR_POOL, auto_cast state.post_descriptor_pool, "canvas post descriptor pool")
+    engine.vk_set_debug_name(
+        ctx,
+        .DESCRIPTOR_POOL,
+        auto_cast state.post_descriptor_pool,
+        "canvas post descriptor pool",
+    )
     post_allocate_info := vk.DescriptorSetAllocateInfo {
         sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
         descriptorPool     = state.post_descriptor_pool,
@@ -640,7 +670,12 @@ backend_init :: proc() -> bool {
     post_pipeline_layout_info := ui_pipeline_layout_info
     post_pipeline_layout_info.pSetLayouts = &state.post_descriptor_layout
     if vk.CreatePipelineLayout(ctx.device, &post_pipeline_layout_info, nil, &state.post_pipeline_layout) != .SUCCESS do return false
-    engine.vk_set_debug_name(ctx, .PIPELINE_LAYOUT, auto_cast state.post_pipeline_layout, "canvas post pipeline layout")
+    engine.vk_set_debug_name(
+        ctx,
+        .PIPELINE_LAYOUT,
+        auto_cast state.post_pipeline_layout,
+        "canvas post pipeline layout",
+    )
     stage = "graphics pipelines"
     vert, frag: engine.Vk_Shader_Module
     if !load_consumer_shader(ctx, state.renderer_descriptor.pipeline.vertex, &vert) do return false

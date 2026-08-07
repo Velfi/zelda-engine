@@ -1,7 +1,6 @@
 #+no-instrumentation
 package dio
 
-import im "zelda_engine:imgui"
 import "base:runtime"
 import "core:fmt"
 import "core:hash"
@@ -14,6 +13,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 import back "zelda_engine:back"
+import im "zelda_engine:imgui"
 
 // This is the Adriatic port of catermujo/rt/dio's flame graph.  The graph
 // stores completed frames locally, so the package does not depend on the
@@ -412,18 +412,15 @@ flame_graph_begin :: proc(graph: ^Flame_Graph, name: string, loc := #caller_loca
         graph.current_dropped_slots += 1
         return Flame_Slot_Handle(-1)
     }
-    append(
-        &graph.slots,
-        Flame_Slot {
-            name = name if len(name) > 0 else "?",
-            file_path = loc.file_path,
-            color = flame_color(name),
-            depth = graph.curr_depth,
-            line = int(loc.line),
-            start = time.tick_now(),
-            active = true,
-        },
-    )
+    append(&graph.slots, Flame_Slot {
+        name      = name if len(name) > 0 else "?",
+        file_path = loc.file_path,
+        color     = flame_color(name),
+        depth     = graph.curr_depth,
+        line      = int(loc.line),
+        start     = time.tick_now(),
+        active    = true,
+    })
     graph.curr_depth += 1
     return Flame_Slot_Handle(len(graph.slots) - 1)
 }

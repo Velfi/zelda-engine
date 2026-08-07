@@ -264,8 +264,15 @@ texture_upload_r8 :: proc(
     cmd, ok := engine.vk_begin_upload_commands(ctx)
     if !ok { image_destroy(out, ctx); return false }
     engine.vk_cmd_image_barrier2(
-        ctx, cmd, out.image, {.TOP_OF_PIPE}, {.TRANSFER}, {}, {.TRANSFER_WRITE},
-        .UNDEFINED, .TRANSFER_DST_OPTIMAL,
+        ctx,
+        cmd,
+        out.image,
+        {.TOP_OF_PIPE},
+        {.TRANSFER},
+        {},
+        {.TRANSFER_WRITE},
+        .UNDEFINED,
+        .TRANSFER_DST_OPTIMAL,
     )
     region := vk.BufferImageCopy {
         imageSubresource = {aspectMask = {.COLOR}, mipLevel = 0, baseArrayLayer = 0, layerCount = 1},
@@ -273,20 +280,27 @@ texture_upload_r8 :: proc(
     }
     vk.CmdCopyBufferToImage(cmd, staging.handle, out.image, .TRANSFER_DST_OPTIMAL, 1, &region)
     engine.vk_cmd_image_barrier2(
-        ctx, cmd, out.image, {.TRANSFER}, {.FRAGMENT_SHADER}, {.TRANSFER_WRITE}, {.SHADER_READ},
-        .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL,
+        ctx,
+        cmd,
+        out.image,
+        {.TRANSFER},
+        {.FRAGMENT_SHADER},
+        {.TRANSFER_WRITE},
+        {.SHADER_READ},
+        .TRANSFER_DST_OPTIMAL,
+        .SHADER_READ_ONLY_OPTIMAL,
     )
     if !engine.vk_submit_upload_commands(ctx) { image_destroy(out, ctx); return false }
     sampler_info := vk.SamplerCreateInfo {
-        sType = .SAMPLER_CREATE_INFO,
-        magFilter = .LINEAR,
-        minFilter = .LINEAR,
-        mipmapMode = .NEAREST,
+        sType        = .SAMPLER_CREATE_INFO,
+        magFilter    = .LINEAR,
+        minFilter    = .LINEAR,
+        mipmapMode   = .NEAREST,
         addressModeU = options.address_mode,
         addressModeV = options.address_mode,
         addressModeW = options.address_mode,
-        minLod = 0,
-        maxLod = 0,
+        minLod       = 0,
+        maxLod       = 0,
     }
     if vk.CreateSampler(ctx.device, &sampler_info, nil, &out.sampler) != .SUCCESS {
         image_destroy(out, ctx)

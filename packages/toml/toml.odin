@@ -84,16 +84,13 @@ _parsed_backing_register :: proc(root: ^Table, owned_data: string, alloc := cont
     sync.guard(&_parsed_backings_lock)
     _parsed_backings_init()
     data_begin := uintptr(raw_data(owned_data))
-    append(
-        &_parsed_backings,
-        _Parsed_Backing {
-            root = root,
-            owned_data = owned_data,
-            data_begin = data_begin,
-            data_end = data_begin + uintptr(len(owned_data)),
-            alloc = alloc,
-        },
-    )
+    append(&_parsed_backings, _Parsed_Backing {
+        root       = root,
+        owned_data = owned_data,
+        data_begin = data_begin,
+        data_end   = data_begin + uintptr(len(owned_data)),
+        alloc      = alloc,
+    })
 }
 
 @(private)

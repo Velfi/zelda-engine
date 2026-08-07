@@ -44,11 +44,11 @@ Vehicle :: distinct rawptr
 Character :: distinct rawptr
 
 Character_State :: struct {
-    position:    Vec3,
-    velocity:    Vec3,
+    position:      Vec3,
+    velocity:      Vec3,
     ground_normal: Vec3,
-    ground_state: Ground_State,
-    ground_body: Body_ID,
+    ground_state:  Ground_State,
+    ground_body:   Body_ID,
 }
 
 World_Stats :: struct {
@@ -163,9 +163,7 @@ set_layer_mask :: proc(world: World, layer: Object_Layer, mask: u16) {
     zelda_physics_world_set_layer_mask(world, layer, mask)
 }
 get_world_stats :: proc(world: World) -> (stats: World_Stats) {
-    zelda_physics_world_get_stats(
-        world, &stats.body_count, &stats.active_body_count, &stats.soft_body_count,
-    )
+    zelda_physics_world_get_stats(world, &stats.body_count, &stats.active_body_count, &stats.soft_body_count)
     return
 }
 drain_contacts :: proc(world: World, events: []Contact_Event) -> int {
@@ -232,8 +230,17 @@ add_box_layered :: proc(
 ) -> Body_ID {
     extent_value, position_value, rotation_value := half_extent, position, rotation
     return zelda_physics_body_add_box_layered(
-        world, &extent_value, &position_value, &rotation_value, motion, mass,
-        user_data, layer, friction, restitution, sensor,
+        world,
+        &extent_value,
+        &position_value,
+        &rotation_value,
+        motion,
+        mass,
+        user_data,
+        layer,
+        friction,
+        restitution,
+        sensor,
     )
 }
 
@@ -252,8 +259,18 @@ add_capsule_layered :: proc(
 ) -> Body_ID {
     position_value, rotation_value := position, rotation
     return zelda_physics_body_add_capsule_layered(
-        world, half_height, radius, &position_value, &rotation_value, motion,
-        mass, user_data, layer, friction, restitution, sensor,
+        world,
+        half_height,
+        radius,
+        &position_value,
+        &rotation_value,
+        motion,
+        mass,
+        user_data,
+        layer,
+        friction,
+        restitution,
+        sensor,
     )
 }
 
@@ -273,9 +290,17 @@ add_static_mesh :: proc(
     }
     position_value, rotation_value := position, rotation
     return zelda_physics_body_add_mesh(
-        world, &vertices[0][0], u32(len(vertices)), raw_data(indices),
-        u32(len(indices) / 3), &position_value, &rotation_value, user_data,
-        layer, friction, restitution,
+        world,
+        &vertices[0][0],
+        u32(len(vertices)),
+        raw_data(indices),
+        u32(len(indices) / 3),
+        &position_value,
+        &rotation_value,
+        user_data,
+        layer,
+        friction,
+        restitution,
     )
 }
 
@@ -360,7 +385,14 @@ create_character :: proc(
 ) -> Character {
     value := position
     return zelda_physics_character_create(
-        world, half_height, radius, &value, max_slope_angle, mass, max_strength, user_data,
+        world,
+        half_height,
+        radius,
+        &value,
+        max_slope_angle,
+        mass,
+        max_strength,
+        user_data,
     )
 }
 destroy_character :: proc(world: World, character: Character) {
@@ -378,12 +410,24 @@ step_character :: proc(
     gravity: Vec3 = {0, -9.81, 0},
     step_up: f32 = .25,
     step_down: f32 = .30,
-) -> (state: Character_State, ok: bool) {
+) -> (
+    state: Character_State,
+    ok: bool,
+) {
     velocity_value, gravity_value := velocity, gravity
     ok = zelda_physics_character_step(
-        world, character, &velocity_value, delta_time, &gravity_value,
-        step_up, step_down, &state.position, &state.velocity,
-        &state.ground_normal, &state.ground_state, &state.ground_body,
+        world,
+        character,
+        &velocity_value,
+        delta_time,
+        &gravity_value,
+        step_up,
+        step_down,
+        &state.position,
+        &state.velocity,
+        &state.ground_normal,
+        &state.ground_state,
+        &state.ground_body,
     )
     return
 }
@@ -416,13 +460,7 @@ add_soft_strand :: proc(
     )
 }
 
-set_soft_strand_root :: proc(
-    world: World,
-    body: Body_ID,
-    root: Vec3,
-    delta_time: f32,
-    teleport := false,
-) -> bool {
+set_soft_strand_root :: proc(world: World, body: Body_ID, root: Vec3, delta_time: f32, teleport := false) -> bool {
     value := root
     return zelda_physics_soft_strand_set_root(world, body, &value, delta_time, teleport)
 }
@@ -435,9 +473,7 @@ set_soft_strand_attachment :: proc(
     teleport := false,
 ) -> bool {
     root_value, tangent_value := root, tangent
-    return zelda_physics_soft_strand_set_attachment(
-        world, body, &root_value, &tangent_value, delta_time, teleport,
-    )
+    return zelda_physics_soft_strand_set_attachment(world, body, &root_value, &tangent_value, delta_time, teleport)
 }
 
 get_soft_strand_points :: proc(world: World, body: Body_ID, points: []Vec3) -> bool {
@@ -445,20 +481,9 @@ get_soft_strand_points :: proc(world: World, body: Body_ID, points: []Vec3) -> b
     return zelda_physics_soft_strand_get_points(world, body, &points[0][0], u32(len(points)))
 }
 
-set_soft_strand_points :: proc(
-    world: World,
-    body: Body_ID,
-    points: []Vec3,
-    reset_velocity := false,
-) -> bool {
+set_soft_strand_points :: proc(world: World, body: Body_ID, points: []Vec3, reset_velocity := false) -> bool {
     if len(points) == 0 do return false
-    return zelda_physics_soft_strand_set_points(
-        world,
-        body,
-        &points[0][0],
-        u32(len(points)),
-        reset_velocity,
-    )
+    return zelda_physics_soft_strand_set_points(world, body, &points[0][0], u32(len(points)), reset_velocity)
 }
 
 cast_ray :: proc(world: World, origin, direction: Vec3, max_distance: f32) -> (hit: Ray_Hit, ok: bool) {
@@ -481,11 +506,21 @@ cast_ray_layer :: proc(
     origin, direction: Vec3,
     max_distance: f32,
     layer: Object_Layer,
-) -> (hit: Ray_Hit, ok: bool) {
+) -> (
+    hit: Ray_Hit,
+    ok: bool,
+) {
     origin_value, direction_value := origin, direction
     ok = zelda_physics_world_cast_ray_layer(
-        world, &origin_value, &direction_value, max_distance, layer,
-        &hit.body, &hit.fraction, &hit.position, &hit.normal,
+        world,
+        &origin_value,
+        &direction_value,
+        max_distance,
+        layer,
+        &hit.body,
+        &hit.fraction,
+        &hit.position,
+        &hit.normal,
     )
     return
 }
@@ -496,11 +531,22 @@ cast_ray_filtered :: proc(
     max_distance: f32,
     layer_mask: u16,
     ignored_body: Body_ID = INVALID_BODY,
-) -> (hit: Ray_Hit, ok: bool) {
+) -> (
+    hit: Ray_Hit,
+    ok: bool,
+) {
     origin_value, direction_value := origin, direction
     ok = zelda_physics_world_cast_ray_filtered(
-        world, &origin_value, &direction_value, max_distance, layer_mask, ignored_body,
-        &hit.body, &hit.fraction, &hit.position, &hit.normal,
+        world,
+        &origin_value,
+        &direction_value,
+        max_distance,
+        layer_mask,
+        ignored_body,
+        &hit.body,
+        &hit.fraction,
+        &hit.position,
+        &hit.normal,
     )
     return
 }

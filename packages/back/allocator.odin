@@ -239,17 +239,14 @@ tracking_allocator_top_alloc_group_add :: proc(data: ^Tracking_Allocator, entry:
         }
     } else {
         data.alloc_top_group_index[key] = len(data.alloc_top_group_array)
-        append(
-            &data.alloc_top_group_array,
-            Tracking_Top_Alloc_Group {
-                key = key,
-                backtrace = entry.backtrace,
-                min_size = entry.size,
-                max_size = entry.size,
-                total_size = entry.size,
-                count = 1,
-            },
-        )
+        append(&data.alloc_top_group_array, Tracking_Top_Alloc_Group {
+            key        = key,
+            backtrace  = entry.backtrace,
+            min_size   = entry.size,
+            max_size   = entry.size,
+            total_size = entry.size,
+            count      = 1,
+        })
     }
 }
 
@@ -1430,18 +1427,15 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
             if group.count <= 0 || group.max_size <= 0 {
                 continue
             }
-            append(
-                &top_alloc_items,
-                Tracking_External_Top_Alloc_Item {
-                    ok = true,
-                    location = group.key.location,
-                    backtrace = group.backtrace,
-                    min_size = u64(max(group.min_size, 0)),
-                    max_size = u64(max(group.max_size, 0)),
-                    total_size = u64(max(group.total_size, 0)),
-                    count = group.count,
-                },
-            )
+            append(&top_alloc_items, Tracking_External_Top_Alloc_Item {
+                ok         = true,
+                location   = group.key.location,
+                backtrace  = group.backtrace,
+                min_size   = u64(max(group.min_size, 0)),
+                max_size   = u64(max(group.max_size, 0)),
+                total_size = u64(max(group.total_size, 0)),
+                count      = group.count,
+            })
         }
         external_top_alloc := tracking_allocator_external_top_alloc_snapshot()
         for item in external_top_alloc.items[:external_top_alloc.count] {

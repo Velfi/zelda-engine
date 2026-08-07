@@ -122,9 +122,7 @@ mock_resize :: proc(data: rawptr, width, height: i32) -> bool {state := cast(^Mo
         true
     return true}
 mock_begin :: proc(data: rawptr) -> bool { state := cast(^Mock_Backend_State)data; state.begun = true; return true }
-mock_submit :: proc(data: rawptr) -> bool { state := cast(^Mock_Backend_State)data; state.submitted = true; return(
-        true \
-    ) }
+mock_submit :: proc(data: rawptr) -> bool {state := cast(^Mock_Backend_State)data; state.submitted = true; return true}
 mock_texture :: proc(data: rawptr, texture: Texture, pixels: []u8) -> bool {state := cast(^Mock_Backend_State)data
     state.texture_updated = true
     return true}

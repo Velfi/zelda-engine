@@ -230,12 +230,22 @@ vk_cmd_copy_buffer_range :: proc(
     source, destination: ^Vk_Buffer,
     source_offset, destination_offset, size: vk.DeviceSize,
 ) -> bool {
-    if ctx == nil || cmd == nil || source == nil || destination == nil ||
-       source.handle == vk.Buffer(0) || destination.handle == vk.Buffer(0) || size == 0 ||
-       source_offset + size > source.size || destination_offset + size > destination.size {
+    if ctx == nil ||
+       cmd == nil ||
+       source == nil ||
+       destination == nil ||
+       source.handle == vk.Buffer(0) ||
+       destination.handle == vk.Buffer(0) ||
+       size == 0 ||
+       source_offset + size > source.size ||
+       destination_offset + size > destination.size {
         return false
     }
-    region := vk.BufferCopy {srcOffset = source_offset, dstOffset = destination_offset, size = size}
+    region := vk.BufferCopy {
+        srcOffset = source_offset,
+        dstOffset = destination_offset,
+        size      = size,
+    }
     vk.CmdCopyBuffer(cmd, source.handle, destination.handle, 1, &region)
     ctx.command_shape.transfer_copy_count += 1
     return true
