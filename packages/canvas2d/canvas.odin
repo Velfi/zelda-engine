@@ -80,6 +80,7 @@ KeyboardKey :: enum {
     RIGHT,
     LEFT_BRACKET,
     RIGHT_BRACKET,
+    GRAVE,
     ONE,
     TWO,
     THREE,

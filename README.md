@@ -10,13 +10,18 @@ Reusable Odin game-framework packages extracted from VizzaOdin.
 - The Vulkan SDK when using the Vulkan-backed engine packages.
 - [Git LFS](https://git-lfs.com/) for cloning source asset files.
 
-After cloning, fetch LFS objects and build the native text bridge:
+After cloning, fetch LFS objects and build the native archives that
+`packages/ui` and `packages/canvas2d` link:
 
 ```sh
 git lfs install
 git lfs pull
 make textshape-build
+make canvas-signposts-build
 ```
+
+Starting a game on top of the engine? See
+[Starting a new game](#starting-a-new-game) for the full consumer checklist.
 
 ## Packages
 
@@ -46,6 +51,14 @@ make textshape-build
   semantic UI documents, draw commands, and animated rich-text span state.
 - `packages/physics`: Jolt-backed rigid-body worlds, primitive bodies, forces,
   transforms, and ray queries behind an Odin-native API.
+- `packages/capture`: screenshot-harness sequencing only. Window creation,
+  rendering, and screenshot delivery stay consumer callbacks.
+- `packages/cgltf`: the vendored cgltf C parser and its Odin bindings, used by
+  `packages/gltf`. Consumers link the prebuilt archive under `cgltf/lib`.
+- `packages/spy`: leveled logging, log filtering, a tracking allocator, and
+  spans. `packages/engine` logs through it, so it is always linked in.
+- `packages/back`: backtraces and a backtrace-attributing allocator, used to
+  attribute leaks and crashes.
 - `third_party`: the small native text-shaping bridge required by `packages/ui`.
 
 The framework contains transient runtime mechanisms only. Product settings,
@@ -72,6 +85,180 @@ import render2d "zelda_engine:render2d"
 import canvas2d "zelda_engine:canvas2d"
 import render3d "zelda_engine:render3d"
 ```
+
+## Starting a new game
+
+A `canvas2d` consumer must supply four things. Miss any one and the failure
+shows up at `InitWindow`, not at compile time, so do them in this order.
+
+### 1. Build the two native archives
+
+`packages/ui` links the HarfBuzz/FreeType text bridge, and `packages/canvas2d`
+links a small C shim that emits GPU signposts. Both live here and are excluded
+from Git, so a fresh clone must build them:
+
+```sh
+make textshape-build          # third_party/textshape/libtextshape.a
+make canvas-signposts-build   # build/libgfx_signposts.a
+```
+
+A consumer may compile `packages/canvas2d/gfx_signposts.c` into its own build
+directory instead; the archive is one object file and has no engine dependency.
+
+### 2. Link against them
+
+The collection alone is not enough — the archives above and the C++ runtime
+have to reach the linker:
+
+```sh
+odin build src \
+  -collection:zelda_engine=/absolute/path/to/zelda-engine/packages \
+  -out:build/game \
+  -extra-linker-flags:"$(pkg-config --libs harfbuzz freetype2) \
+    /path/to/zelda-engine/third_party/textshape/libtextshape.a \
+    -Lbuild -lgfx_signposts -lc++ \
+    -Wl,-no_warn_duplicate_libraries -framework Cocoa"
+```
+
+`-framework Cocoa` and `-Wl,-no_warn_duplicate_libraries` are macOS only.
+
+### 3. Provide the four canvas shader entry points
+
+`canvas2d` owns Vulkan setup but never the shader source. A consumer supplies
+one module with four entry points, named through
+`render2d.Renderer_Descriptor`:
+
+| Entry point | Stage | Purpose |
+| --- | --- | --- |
+| `vertex_main` | vertex | Canvas batches: pixel coordinates to NDC |
+| `fragment_main` | fragment | Canvas batches: solid, textured, and glyph pages |
+| `post_vertex` | vertex | Full-screen triangle for the post pass |
+| `post_fragment` | fragment | Post pass; pass the scene through when unused |
+
+The push-constant block must match `canvas2d.Push` exactly — eight `float4`s,
+128 bytes, enforced by `#assert(size_of(Push) == 128)`. `fragment_main` must
+branch on `push.texture_hatch.x`: above `1.5` is a glyph page whose alpha comes
+from the texel's red channel, above `0.5` is a textured quad, otherwise solid.
+Text renders as blank rectangles when that branch is missing.
+
+Compile each entry point to its own `.spv`:
+
+```sh
+slangc canvas.slang -entry vertex_main -stage vertex \
+  -target spirv -profile spirv_1_5 -o build/shaders/canvas.vert.spv
+```
+
+The descriptor names a manifest key and a fallback path; the fallback is
+resolved relative to the working directory, so the compiled modules belong in
+`shaders/` beside the executable.
+
+### 4. Stage the runtime assets
+
+`canvas2d` builds one atlas holding both font planes and, optionally, a UI icon
+sheet. It reads them from paths relative to the **working directory**, so run
+the game from its build directory:
+
+```
+assets/fonts/<body>.ttf       required, set via SetBodyFontPath
+assets/fonts/<display>.ttf    required, set via SetDisplayFontPath
+assets/icons/<sheet>.png      optional, set via SetIconAtlasPath
+```
+
+Both fonts are required — the atlas rasterizes an ASCII page from each. All
+three setters must be called before `InitWindow`, which is when the backend
+builds the atlas.
+
+The icon sheet has no default. A consumer that never names one draws no icons
+and boots without it, and `DrawIcon` becomes a no-op. Name one and it is packed
+into the tail of the atlas, addressed by `DrawIcon` as an `ICON_COLUMNS` x
+`ICON_ROWS` grid in row-major order:
+
+```odin
+_ = canvas2d.SetIconAtlasPath("assets/icons/my-icons.png")
+canvas2d.DrawIcon(0, {40, 40, 64, 64})
+```
+
+A sheet named here and missing at startup fails `InitWindow` and names the path
+it tried, along with the working directory it resolved against.
+
+### A minimal consumer
+
+This is the whole of a working app. It boots a window, draws a rectangle and a
+line of text, and exits.
+
+```odin
+package main
+
+import "core:fmt"
+import "core:os"
+import canvas2d "zelda_engine:canvas2d"
+import render2d "zelda_engine:render2d"
+
+RENDERER_DESCRIPTOR := render2d.Renderer_Descriptor {
+    pipeline = {
+        vertex = {"assets/shaders/canvas.vert", .Vertex, "main", "shaders/canvas.vert"},
+        fragment = {"assets/shaders/canvas.frag", .Fragment, "main", "shaders/canvas.frag"},
+        post_vertex = {"assets/shaders/canvas-post.vert", .Vertex, "main", "shaders/canvas-post.vert"},
+        post_fragment = {"assets/shaders/canvas-post.frag", .Fragment, "main", "shaders/canvas-post.frag"},
+        push_constant_size = size_of(canvas2d.Push),
+    },
+}
+
+main :: proc() {
+    canvas2d.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
+    _ = canvas2d.SetBodyFontPath("assets/fonts/NotoSans-Regular.ttf")
+    _ = canvas2d.SetDisplayFontPath("assets/fonts/NotoSerif-Regular.ttf")
+    if !canvas2d.SetRendererDescriptor(RENDERER_DESCRIPTOR) {
+        fmt.eprintln("error: SetRendererDescriptor failed")
+        os.exit(1)
+    }
+    if !canvas2d.InitWindow(960, 600, "hello") {
+        fmt.eprintln("error: InitWindow failed")
+        os.exit(1)
+    }
+    defer canvas2d.CloseWindow()
+
+    for !canvas2d.WindowShouldClose() {
+        canvas2d.BeginDrawing()
+        canvas2d.ClearBackground({18, 18, 22, 255})
+        canvas2d.DrawRectangleRec({40, 40, 220, 120}, {220, 180, 90, 255})
+        // A zero Font with ready = true selects the configured body font.
+        canvas2d.DrawTextEx(canvas2d.Font{ready = true}, "hello", {40, 200}, 32, 1, {236, 232, 224, 255})
+        canvas2d.EndDrawing()
+        free_all(context.temp_allocator)
+    }
+}
+```
+
+`SetRendererDescriptor` and the font paths must be set **before**
+`InitWindow` — the backend reads them while building its pipelines and atlas.
+
+### Screenshots
+
+`TakeScreenshot` requests a readback that a later presented frame completes.
+Requesting one and exiting immediately writes no file. Draw a few more frames
+after the request, then exit:
+
+```odin
+draw()
+canvas2d.TakeScreenshot("smoke.png")
+draw()
+draw()
+```
+
+This makes a good self-test for a consumer: boot, advance, capture, exit.
+
+### When it fails
+
+| Symptom | Cause |
+| --- | --- |
+| `canvas font atlas: body font failed to load` | The named font does not resolve from the working directory; the message prints both paths |
+| `canvas font atlas: icon sheet failed to load` | A sheet was named through `SetIconAtlasPath` but is not there. Leave the path unset to boot without icons |
+| `canvas backend initialization failed during graphics pipelines` | A `.spv` named by the descriptor is missing beside the executable, or an entry point failed to compile |
+| Undefined symbols for `gfx_signpost_*` | `libgfx_signposts.a` not built or not on the link line |
+| Undefined symbols for `hb_*` or `FT_*` | `libtextshape.a` or the `pkg-config` libraries missing from `-extra-linker-flags` |
+| Text draws as blank rectangles | `fragment_main` does not branch on `push.texture_hatch.x > 1.5` for glyph pages |
+| Geometry is misplaced or the window is black | `push_constant_size` disagrees with `canvas2d.Push`, or the shader's `Push` block is not the same eight `float4`s |
 
 ## 2D renderer boundary
 

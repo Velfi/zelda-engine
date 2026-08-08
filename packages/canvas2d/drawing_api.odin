@@ -262,6 +262,10 @@ keyboard_key_scancodes :: #force_inline proc(key: KeyboardKey) -> (primary, alte
         return .LEFTBRACKET, .UNKNOWN
     case .RIGHT_BRACKET:
         return .RIGHTBRACKET, .UNKNOWN
+    // The key under Esc, by position rather than by the character it prints, so
+    // the same physical key works on layouts that put something else there.
+    case .GRAVE:
+        return .GRAVE, .UNKNOWN
     case .ONE:
         return ._1, .KP_1
     case .TWO:
